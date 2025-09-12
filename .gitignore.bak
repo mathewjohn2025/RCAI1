@@ -1,0 +1,18 @@
+
+# Exclude only screenshots and instruction text files
+
+# Match screenshots in any folder (common image formats)
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.bmp
+**/*.tiff
+**/*.webp
+
+# Match any file literally named 'instructions.txt'
+**/instructions.txt
+
+# (optional) If screenshots are in a dedicated folder, skip just that folder
+# screenshots/**
+

@@ -1,0 +1,22 @@
+# Node / Next
+node_modules/
+.next/
+dist/
+build/
+coverage/
+*.log
+*.cache/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Environment & OS
+.env*
+.DS_Store
+
+# Temporary
+/tmp/
+tmp/
