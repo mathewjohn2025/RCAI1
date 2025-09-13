@@ -33,12 +33,12 @@ export async function api(path: string, init: RequestInit = {}) {
     ...init,
   });
   
-  // SPECIFICATION: On 401, clear auth state and navigate to /login
+  // SPECIFICATION: On 401, clear auth state and navigate to unified login route
   if (r.status === 401) {
     clearAuthState();
     const currentPath = window.location.pathname + window.location.search;
     const returnUrl = encodeURIComponent(currentPath);
-    window.location.href = `/login?returnTo=${returnUrl}`;
+    window.location.href = `${API_CONFIG.LOGIN_ROUTE}?returnTo=${returnUrl}`;
     throw new UnauthorizedError();
   }
   return r;
@@ -64,13 +64,12 @@ export type AITestErr = {
 export type AITestResp = AITestOk | AITestErr;
 
 export async function postJSON<T>(url: string, body?: unknown): Promise<T> {
-  const res = await fetch(url, {
+  // SPECIFICATION: Route through single API wrapper to ensure proper headers and 401 handling
+  const response = await api(url, {
     method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const data = (await res.json()) as T;
+  const data = (await response.json()) as T;
   // If server somehow returned 2xx but ok=false, still treat as error at the caller
   return data;
 }

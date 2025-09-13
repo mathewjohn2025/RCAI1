@@ -34,9 +34,12 @@ export default function AIProvidersTable() {
     refetchOnMount: 'always'
   });
 
-  // SPECIFICATION: Admin query with explicit enabled flag
+  // CRITICAL: Use consistent queryKey for fetch and invalidation
+  const PROVIDERS_QUERY_KEY = ['admin', 'providers'];
+  
   const { data: rows = [], isLoading } = useAuthedQuery<ProviderRow[]>({
-    queryKey: [API_ENDPOINTS.aiProviders()],
+    queryKey: PROVIDERS_QUERY_KEY,
+    url: API_ENDPOINTS.aiProviders(), // SPECIFICATION: Actual URL from API_ENDPOINTS (config-driven)
     enabled: !!whoami?.user, // SPECIFICATION: Must explicitly enable
     staleTime: 0,
     gcTime: 0,
@@ -49,7 +52,7 @@ export default function AIProvidersTable() {
       return await response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-providers'] });
+      queryClient.invalidateQueries({ queryKey: PROVIDERS_QUERY_KEY });
       setProvider("");
       setModelId("");
       setApiKey("");
@@ -67,7 +70,7 @@ export default function AIProvidersTable() {
       return await response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-providers'] });
+      queryClient.invalidateQueries({ queryKey: PROVIDERS_QUERY_KEY });
       setDeletingId(null);
       setToast("Provider deleted.");
     },
@@ -96,7 +99,7 @@ export default function AIProvidersTable() {
       return await response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-providers'] });
+      queryClient.invalidateQueries({ queryKey: PROVIDERS_QUERY_KEY });
       setToast("Active provider updated.");
     },
     onError: (err: any) => {

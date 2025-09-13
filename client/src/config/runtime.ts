@@ -9,6 +9,9 @@ export const API_CONFIG = {
   ADMIN_API_PREFIX: import.meta.env.VITE_ADMIN_API_PREFIX || '/api/admin/',
   AUTH_WHOAMI_ENDPOINT: import.meta.env.VITE_AUTH_WHOAMI_ENDPOINT || '/api/auth/whoami',
   
+  // CRITICAL: Unified login route to prevent 404 redirects
+  LOGIN_ROUTE: import.meta.env.VITE_LOGIN_ROUTE || '/admin/login',
+  
   // Client identification headers - configurable for different environments
   CLIENT_HEADER_NAME: import.meta.env.VITE_API_CLIENT_HEADER || 'x-client-type',
   CLIENT_HEADER_VALUE: import.meta.env.VITE_API_CLIENT_VALUE || 'web-app',

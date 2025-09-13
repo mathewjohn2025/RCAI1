@@ -36,10 +36,10 @@ export default function AdminRouteLoader({ children }: AdminRouteLoaderProps) {
   }
 
   if (!isAuthenticated) {
-    // Redirect to login without mounting children
+    // CRITICAL: Use unified login route to prevent 404
     const currentPath = window.location.pathname + window.location.search;
     const returnUrl = encodeURIComponent(currentPath);
-    window.location.href = `/admin/login?returnTo=${returnUrl}`;
+    window.location.href = `${API_CONFIG.LOGIN_ROUTE}?returnTo=${returnUrl}`;
     return null;
   }
 

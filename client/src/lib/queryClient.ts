@@ -14,12 +14,14 @@ import { api } from "@/lib/api";
 
 export function useAuthedQuery<T = unknown>(options: UseQueryOptions<T> & { 
   queryKey: string[];
+  url: string; // REQUIRED: Actual API endpoint URL (no hardcoding in helper)
   enabled: boolean; // REQUIRED: Must explicitly enable
 }) {
   return useQuery<T>({
     ...options,
     queryFn: async (): Promise<T> => {
-      const response = await api(options.queryKey.join("/"));
+      // SPECIFICATION: Use provided URL, queryKey is purely for cache identification
+      const response = await api(options.url);
       return await response.json() as T;
     },
   });
