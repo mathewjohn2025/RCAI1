@@ -6,12 +6,19 @@ import { API_ENDPOINTS } from '@/config/apiEndpoints';
 export default function AdminSettings(){
   const [sections,setSections]=useState<string[]>([]);
   const [active,setActive]=useState('');
-  useEffect(()=>{ fetch(API_ENDPOINTS.adminSections(),{credentials:'include'}).then(r=>r.json()).then(j=>{
-    const ids = Array.isArray(j.sections)? j.sections : [];
-    setSections(ids);
-    const h = location.hash.slice(1);
-    setActive(h && ids.includes(h) ? h : (ids[0]||''));
-  });},[]);
+  useEffect(()=>{ 
+    // Load sections on mount - component should only be rendered in authenticated admin context
+    // via RequireAdmin guard which ensures authentication is confirmed before rendering
+    fetch(API_ENDPOINTS.adminSections(),{credentials:'include'}).then(r=>r.json()).then(j=>{
+      const ids = Array.isArray(j.sections)? j.sections : [];
+      setSections(ids);
+      const h = location.hash.slice(1);
+      setActive(h && ids.includes(h) ? h : (ids[0]||''));
+    }).catch(error => {
+      console.error('Failed to load admin sections:', error);
+      // Component will remain in loading state if fetch fails
+    });
+  },[]);
   useEffect(()=>{ const onHash=()=>{ const h=location.hash.slice(1); if(h) setActive(h); };
     addEventListener('hashchange',onHash); return ()=>removeEventListener('hashchange',onHash);
   },[]);

@@ -37,10 +37,9 @@ export default function AIProvidersTable() {
   }
 
   useEffect(() => { 
-    // Only load if on admin route to prevent unauthorized API calls
-    if (window.location.pathname.startsWith(ADMIN_ROUTES.BASE)) {
-      load();
-    }
+    // Load data on mount - component should only be rendered in authenticated admin context
+    // via RequireAdmin guard which ensures authentication is confirmed
+    load();
   }, []);
 
   async function save() {
