@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from "react";
-import { api } from "@/lib/api";
-import { API_ENDPOINTS, ADMIN_ROUTES } from "@/config/apiEndpoints";
+import React, { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { API_ENDPOINTS } from "@/config/apiEndpoints";
 
 type ProviderRow = {
   id: number;
@@ -11,259 +12,252 @@ type ProviderRow = {
 };
 
 export default function AIProvidersTable() {
-  const [rows, setRows] = useState<ProviderRow[]>([]);
   const [provider, setProvider] = useState("");
   const [modelId, setModelId] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [makeActive, setMakeActive] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
-  async function load() {
-    try {
-      const res = await api(API_ENDPOINTS.aiProviders());
-      if (!res.ok) {
-        setToast(`Load failed: ${res.status}`);
-        return;
-      }
-      const json = await res.json();
-      setRows(json ?? []);
-    } catch (error: any) {
-      if (error.message !== "unauthorized") {
-        setToast("Load failed");
-      }
-    }
-  }
+  // CRITICAL: Gate admin API calls - no user, no call
+  const { data: userAuth, isLoading: authLoading } = useQuery({
+    queryKey: ['whoami'],
+    queryFn: () => fetch('/api/auth/whoami', { credentials: 'include' }).then(r => r.json()),
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always'
+  });
 
-  useEffect(() => { 
-    // Load data on mount - component should only be rendered in authenticated admin context
-    // via RequireAdmin guard which ensures authentication is confirmed
-    load();
-  }, []);
+  const { data: rows = [], isLoading } = useQuery({
+    queryKey: ['admin-providers'],
+    queryFn: () => apiRequest(API_ENDPOINTS.aiProviders()),
+    enabled: !!userAuth?.user, // <-- CRITICAL. No user, no call.
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always'
+  });
 
-  async function save() {
-    if (!provider || !modelId || !apiKey) {
-      setToast("All fields required.");
-      return;
-    }
-    setBusy(true);
-    setToast(null);
-    try {
-      const res = await api(API_ENDPOINTS.aiProviders(), {
-        method: "POST",
-        body: JSON.stringify({ 
-          provider: provider.trim().toLowerCase(),
-          modelId: modelId.trim(),
-          apiKey: apiKey,
-          setActive: !!makeActive
-        }),
-      });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        setToast(json?.message || `Save failed: ${res.status}`);
-        return;
-      }
-      setToast("Provider saved.");
+  const createMutation = useMutation({
+    mutationFn: async (data: { provider: string; modelId: string; apiKey: string; setActive: boolean }) => {
+      return await apiRequest(API_ENDPOINTS.aiProviders(), { method: "POST", body: JSON.stringify(data) });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-providers'] });
       setProvider("");
       setModelId("");
       setApiKey("");
       setMakeActive(false);
-      await load();
-    } catch (err: any) {
-      if (err.message !== "unauthorized") {
-        setToast("Network error");
-      }
-    } finally {
-      setBusy(false);
+      setToast("Provider saved.");
+    },
+    onError: (err: any) => {
+      setToast(err.message || "Save failed");
     }
-  }
+  });
 
-  async function testProvider(id: number) {
-    setBusy(true);
-    setToast(null);
-    try {
-      const res = await api(API_ENDPOINTS.aiProviderTest(id), {
-        method: "POST",
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setToast(json?.message || `Test failed: ${res.status}`);
-        return;
-      }
-      setToast(json.ok ? `✅ Test OK (${json.latencyMs ?? "?"} ms)` : `❌ ${json.message || "Test failed"}`);
-    } catch (err: any) {
-      if (err.message !== "unauthorized") {
-        setToast("Test failed");
-      }
-    } finally {
-      setBusy(false);
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return await apiRequest(API_ENDPOINTS.aiProviderById(id), { method: "DELETE" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-providers'] });
+      setDeletingId(null);
+      setToast("Provider deleted.");
+    },
+    onError: (err: any) => {
+      setDeletingId(null);
+      setToast(err.message || "Delete failed");
     }
-  }
+  });
 
-  async function setActive(id: number) {
-    setBusy(true);
-    setToast(null);
-    try {
-      const res = await api(API_ENDPOINTS.aiProviderById(id), {
-        method: "PATCH",
-        body: JSON.stringify({ setActive: true }),
-      });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        setToast(json?.message || `Activate failed: ${res.status}`);
-        return;
-      }
-      await load();
+  const testMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return await apiRequest(API_ENDPOINTS.aiProviderTest(id), { method: "POST" });
+    },
+    onSuccess: (data: any) => {
+      setToast(data.ok ? `✅ Test OK (${data.latencyMs ?? "?"} ms)` : `❌ ${data.message || "Test failed"}`);
+    },
+    onError: (err: any) => {
+      setToast(err.message || "Test failed");
+    }
+  });
+
+  const activateMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return await apiRequest(API_ENDPOINTS.aiProviderById(id), { method: "PATCH", body: JSON.stringify({ setActive: true }) });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-providers'] });
       setToast("Active provider updated.");
-    } catch (err: any) {
-      if (err.message !== "unauthorized") {
-        setToast("Activate failed");
-      }
-    } finally {
-      setBusy(false);
+    },
+    onError: (err: any) => {
+      setToast(err.message || "Activate failed");
     }
+  });
+
+  function save() {
+    if (!provider || !modelId || !apiKey) {
+      setToast("All fields required.");
+      return;
+    }
+    setToast(null);
+    createMutation.mutate({
+      provider: provider.trim().toLowerCase(),
+      modelId: modelId.trim(),
+      apiKey: apiKey,
+      setActive: !!makeActive
+    });
   }
 
-  async function deleteProvider(id: number) {
+  function testProvider(id: number) {
+    setToast(null);
+    testMutation.mutate(id);
+  }
+
+  function setActiveProvider(id: number) {
+    setToast(null);
+    activateMutation.mutate(id);
+  }
+
+  function deleteProvider(id: number) {
     if (!confirm('Delete this provider? This removes its key and deactivates it.')) {
       return;
     }
-    
     setDeletingId(id);
     setToast(null);
-    try {
-      const res = await api(API_ENDPOINTS.aiProviderById(id), {
-        method: "DELETE",
-      });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        setToast(json?.message || `Delete failed: ${res.status}`);
-        return;
-      }
-      setToast("Provider deleted.");
-      await load();
-    } catch (err: any) {
-      if (err.message !== "unauthorized") {
-        setToast("Delete failed");
-      }
-    } finally {
-      setDeletingId(null);
-    }
+    deleteMutation.mutate(id);
   }
 
+  if (authLoading) return <div>Loading...</div>;
+  if (!userAuth?.user) return <div>Access denied</div>;
+
+  const busy = createMutation.isPending || deleteMutation.isPending || testMutation.isPending || activateMutation.isPending;
+
   return (
-    <div className="p-4 max-w-4xl mx-auto">
-      <h2 className="text-xl font-semibold mb-4">AI Providers</h2>
-      
+    <div>
       {toast && (
-        <div className="mb-4 p-3 bg-blue-100 border border-blue-300 rounded text-blue-800">
+        <div className="mb-4 p-3 bg-blue-100 border border-blue-300 rounded">
           {toast}
+          <button
+            className="ml-4 text-blue-600 underline"
+            onClick={() => setToast(null)}
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
       <div className="mb-6 p-4 border rounded">
-        <h3 className="text-lg mb-3">Add Provider</h3>
-        <div className="grid grid-cols-2 gap-3 mb-3">
+        <h3 className="text-lg font-medium mb-4">Add AI Provider</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
           <input
-            className="border p-2 rounded"
-            placeholder="Provider (e.g., openai)"
+            type="text"
+            placeholder="Provider (openai, anthropic, etc.)"
             value={provider}
-            onChange={e => setProvider(e.target.value)}
+            onChange={(e) => setProvider(e.target.value)}
+            className="border border-gray-300 rounded px-3 py-2"
+            disabled={busy}
           />
           <input
-            className="border p-2 rounded"
-            placeholder="Model ID (e.g., gpt-4)"
+            type="text"
+            placeholder="Model ID (gpt-4, claude-3, etc.)"
             value={modelId}
-            onChange={e => setModelId(e.target.value)}
+            onChange={(e) => setModelId(e.target.value)}
+            className="border border-gray-300 rounded px-3 py-2"
+            disabled={busy}
+          />
+          <input
+            type="password"
+            placeholder="API Key"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            className="border border-gray-300 rounded px-3 py-2"
+            disabled={busy}
           />
         </div>
-        <input
-          className="border p-2 rounded w-full mb-3"
-          type="password"
-          placeholder="API Key"
-          value={apiKey}
-          onChange={e => setApiKey(e.target.value)}
-        />
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           <label className="flex items-center">
             <input
               type="checkbox"
               checked={makeActive}
-              onChange={e => setMakeActive(e.target.checked)}
+              onChange={(e) => setMakeActive(e.target.checked)}
               className="mr-2"
+              disabled={busy}
             />
-            Set as active
+            Make this the active provider
           </label>
           <button
             onClick={save}
-            disabled={busy}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+            disabled={busy || !provider || !modelId || !apiKey}
+            className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50"
           >
-            {busy ? "Saving..." : "Save"}
+            {createMutation.isPending ? "Saving..." : "Save Provider"}
           </button>
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse border border-gray-300">
-          <thead>
-            <tr className="bg-gray-100">
-              <th className="border border-gray-300 p-2 text-left">Provider</th>
-              <th className="border border-gray-300 p-2 text-left">Model</th>
-              <th className="border border-gray-300 p-2 text-left">Status</th>
-              <th className="border border-gray-300 p-2 text-left">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(row => (
-              <tr key={row.id}>
-                <td className="border border-gray-300 p-2">{row.provider}</td>
-                <td className="border border-gray-300 p-2">{row.modelId}</td>
-                <td className="border border-gray-300 p-2">
-                  <span className={`px-2 py-1 rounded text-sm ${
-                    row.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
-                  }`}>
-                    {row.active ? 'Active' : 'Inactive'}
-                  </span>
-                  {row.hasKey && (
-                    <span className="ml-2 px-2 py-1 rounded text-sm bg-blue-100 text-blue-800">
-                      Has Key
-                    </span>
-                  )}
-                </td>
-                <td className="border border-gray-300 p-2">
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => testProvider(row.id)}
-                      disabled={busy}
-                      className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      Test
-                    </button>
-                    <button
-                      onClick={() => setActive(row.id)}
-                      disabled={busy || row.active}
-                      className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50"
-                    >
-                      Activate
-                    </button>
-                    <button
-                      onClick={() => deleteProvider(row.id)}
-                      disabled={busy || deletingId === row.id}
-                      className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700 disabled:opacity-50"
-                    >
-                      {deletingId === row.id ? "Deleting..." : "Delete"}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {rows.length === 0 && (
-          <div className="text-center py-8 text-gray-500">
-            No providers configured
+      <div>
+        <h3 className="text-lg font-medium mb-4">Current Providers</h3>
+        {isLoading ? (
+          <div>Loading providers...</div>
+        ) : rows.length === 0 ? (
+          <div>No providers configured.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse border border-gray-300">
+              <thead>
+                <tr className="bg-gray-50">
+                  <th className="border border-gray-300 px-4 py-2 text-left">Provider</th>
+                  <th className="border border-gray-300 px-4 py-2 text-left">Model</th>
+                  <th className="border border-gray-300 px-4 py-2 text-center">Status</th>
+                  <th className="border border-gray-300 px-4 py-2 text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row: ProviderRow) => (
+                  <tr key={row.id}>
+                    <td className="border border-gray-300 px-4 py-2">{row.provider}</td>
+                    <td className="border border-gray-300 px-4 py-2">{row.modelId}</td>
+                    <td className="border border-gray-300 px-4 py-2 text-center">
+                      <span className={`px-2 py-1 rounded text-xs ${row.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                        {row.active ? "Active" : "Inactive"}
+                      </span>
+                      {row.hasKey && (
+                        <span className="ml-2 px-2 py-1 rounded text-xs bg-blue-100 text-blue-800">
+                          Key Set
+                        </span>
+                      )}
+                    </td>
+                    <td className="border border-gray-300 px-4 py-2 text-center">
+                      <div className="flex gap-2 justify-center">
+                        <button
+                          onClick={() => testProvider(row.id)}
+                          disabled={busy || !row.hasKey}
+                          className="bg-green-600 text-white px-3 py-1 rounded text-sm disabled:opacity-50"
+                        >
+                          {testMutation.isPending ? "Testing..." : "Test"}
+                        </button>
+                        {!row.active && (
+                          <button
+                            onClick={() => setActiveProvider(row.id)}
+                            disabled={busy || !row.hasKey}
+                            className="bg-blue-600 text-white px-3 py-1 rounded text-sm disabled:opacity-50"
+                          >
+                            {activateMutation.isPending ? "Activating..." : "Activate"}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => deleteProvider(row.id)}
+                          disabled={busy || deletingId === row.id}
+                          className="bg-red-600 text-white px-3 py-1 rounded text-sm disabled:opacity-50"
+                        >
+                          {deletingId === row.id ? "Deleting..." : "Delete"}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
