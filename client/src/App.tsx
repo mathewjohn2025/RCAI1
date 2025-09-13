@@ -10,7 +10,7 @@ import { API_ENDPOINTS } from "@/config/apiEndpoints";
 import Home from "@/pages/home";
 import AnalysisDetail from "@/pages/analysis-detail";
 import AdminLogin from "@/pages/admin-login";
-import AdminGate from "@/components/AdminGate";
+import RequireAuth from "@/components/RequireAuth";
 
 // Lazy imports for admin components - prevents loading until authenticated
 const AdminLayoutLazy = React.lazy(() => import("@/components/AdminLayout"));
@@ -80,62 +80,67 @@ function Router() {
   return (
       <Routes>
         <Route path="/admin/login" element={<AdminLogin />} />
-        <Route path="/admin" element={<AdminGate />}>
-          <Route element={
-            <Suspense fallback={null}>
-              <AdminLayoutLazy />
-            </Suspense>
-          }>
-            <Route
-              path="settings"
-              element={
-                <Suspense fallback={null}>
-                  <AdminSettingsLazy />
-                </Suspense>
-              }
-            />
-            <Route
-              path="evidence-library"
-              element={
-                <Suspense fallback={null}>
-                  <EvidenceLibraryAdminLazy />
-                </Suspense>
-              }
-            />
-            <Route
-              path="evidence-management"
-              element={
-                <Suspense fallback={null}>
-                  <EvidenceLibrarySimpleLazy />
-                </Suspense>
-              }
-            />
-            <Route
-              path="evidence-library-management"
-              element={
-                <Suspense fallback={null}>
-                  <EvidenceLibraryManagementLazy />
-                </Suspense>
-              }
-            />
-            <Route
-              path="fault-reference-library"
-              element={
-                <Suspense fallback={null}>
-                  <FaultReferenceLibraryLazy />
-                </Suspense>
-              }
-            />
-            <Route
-              path="taxonomy-management"
-              element={
-                <Suspense fallback={null}>
-                  <TaxonomyManagementLazy />
-                </Suspense>
-              }
-            />
-          </Route>
-        </Route>
+        {/* Specification: Wrap /admin routes with RequireAuth guard */}
+        <Route
+          path="/admin/settings"
+          element={
+            <RequireAuth>
+              <Suspense fallback={<div>Loading...</div>}>
+                <AdminLayoutLazy />
+              </Suspense>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/evidence-library"
+          element={
+            <RequireAuth>
+              <Suspense fallback={<div>Loading...</div>}>
+                <EvidenceLibraryAdminLazy />
+              </Suspense>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/evidence-management"
+          element={
+            <RequireAuth>
+              <Suspense fallback={<div>Loading...</div>}>
+                <EvidenceLibrarySimpleLazy />
+              </Suspense>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/evidence-library-management"
+          element={
+            <RequireAuth>
+              <Suspense fallback={<div>Loading...</div>}>
+                <EvidenceLibraryManagementLazy />
+              </Suspense>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/fault-reference-library"
+          element={
+            <RequireAuth>
+              <Suspense fallback={<div>Loading...</div>}>
+                <FaultReferenceLibraryLazy />
+              </Suspense>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/taxonomy-management"
+          element={
+            <RequireAuth>
+              <Suspense fallback={<div>Loading...</div>}>
+                <TaxonomyManagementLazy />
+              </Suspense>
+            </RequireAuth>
+          }
+        />
         
         <Route path="/new" element={<NewInvestigation />} />
         <Route path="/investigation/:id/type" element={<InvestigationType />} />

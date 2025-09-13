@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { api } from "@/lib/api";
+import { queryClient } from "@/lib/queryClient";
 import { API_ENDPOINTS } from "@/config/apiEndpoints";
 
 type ProviderRow = {
@@ -30,7 +31,10 @@ export default function AIProvidersTable() {
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ['admin-providers'],
-    queryFn: () => apiRequest(API_ENDPOINTS.aiProviders()),
+    queryFn: async () => {
+      const response = await api(API_ENDPOINTS.aiProviders());
+      return await response.json();
+    },
     enabled: !!whoami?.user, // <-- EXACT SPECIFICATION: enabled: !!whoami?.user
     staleTime: 0,
     gcTime: 0,
@@ -39,7 +43,8 @@ export default function AIProvidersTable() {
 
   const createMutation = useMutation({
     mutationFn: async (data: { provider: string; modelId: string; apiKey: string; setActive: boolean }) => {
-      return await apiRequest(API_ENDPOINTS.aiProviders(), { method: "POST", body: JSON.stringify(data) });
+      const response = await api(API_ENDPOINTS.aiProviders(), { method: "POST", body: JSON.stringify(data) });
+      return await response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-providers'] });
@@ -56,7 +61,8 @@ export default function AIProvidersTable() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      return await apiRequest(API_ENDPOINTS.aiProviderById(id), { method: "DELETE" });
+      const response = await api(API_ENDPOINTS.aiProviderById(id), { method: "DELETE" });
+      return await response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-providers'] });
@@ -71,7 +77,8 @@ export default function AIProvidersTable() {
 
   const testMutation = useMutation({
     mutationFn: async (id: number) => {
-      return await apiRequest(API_ENDPOINTS.aiProviderTest(id), { method: "POST" });
+      const response = await api(API_ENDPOINTS.aiProviderTest(id), { method: "POST" });
+      return await response.json();
     },
     onSuccess: (data: any) => {
       setToast(data.ok ? `✅ Test OK (${data.latencyMs ?? "?"} ms)` : `❌ ${data.message || "Test failed"}`);
@@ -83,7 +90,8 @@ export default function AIProvidersTable() {
 
   const activateMutation = useMutation({
     mutationFn: async (id: number) => {
-      return await apiRequest(API_ENDPOINTS.aiProviderById(id), { method: "PATCH", body: JSON.stringify({ setActive: true }) });
+      const response = await api(API_ENDPOINTS.aiProviderById(id), { method: "PATCH", body: JSON.stringify({ setActive: true }) });
+      return await response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-providers'] });

@@ -48,6 +48,10 @@ externalPort = 3003
 localPort = 44785
 externalPort = 6000
 
+[[ports]]
+localPort = 46179
+externalPort = 6800
+
 [env]
 # Trigger git change
 
