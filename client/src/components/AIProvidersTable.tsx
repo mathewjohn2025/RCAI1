@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, useAuthedQuery } from "@/lib/queryClient";
 import { API_ENDPOINTS } from "@/config/apiEndpoints";
+import { API_CONFIG } from "@/config/runtime";
 
 type ProviderRow = {
   id: number;
@@ -20,22 +21,23 @@ export default function AIProvidersTable() {
   const [toast, setToast] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
-  // EXACT SPECIFICATION: Gate admin queries 
+  // SPECIFICATION: Auth check using runtime config
   const { data: whoami } = useQuery({
-    queryKey: ['whoami'],
-    queryFn: () => fetch('/api/auth/whoami', { credentials: 'include' }).then(r => r.json()),
+    queryKey: [API_CONFIG.AUTH_WHOAMI_ENDPOINT],
+    queryFn: async () => {
+      const response = await api(API_CONFIG.AUTH_WHOAMI_ENDPOINT);
+      return await response.json();
+    },
+    enabled: true, // SPECIFICATION: Auth check always enabled
     staleTime: 0,
     gcTime: 0,
     refetchOnMount: 'always'
   });
 
-  const { data: rows = [], isLoading } = useQuery({
-    queryKey: ['admin-providers'],
-    queryFn: async () => {
-      const response = await api(API_ENDPOINTS.aiProviders());
-      return await response.json();
-    },
-    enabled: !!whoami?.user, // <-- EXACT SPECIFICATION: enabled: !!whoami?.user
+  // SPECIFICATION: Admin query with explicit enabled flag
+  const { data: rows = [], isLoading } = useAuthedQuery<ProviderRow[]>({
+    queryKey: [API_ENDPOINTS.aiProviders()],
+    enabled: !!whoami?.user, // SPECIFICATION: Must explicitly enable
     staleTime: 0,
     gcTime: 0,
     refetchOnMount: 'always'

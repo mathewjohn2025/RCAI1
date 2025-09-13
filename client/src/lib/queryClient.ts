@@ -8,26 +8,22 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
-// DEPRECATED: This function is being removed to enforce single API wrapper
-// Use api() from @/lib/api instead
+// SPECIFICATION: useAuthedQuery helper - requires explicit enabled flag
+import { useQuery, UseQueryOptions } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 
-type UnauthorizedBehavior = "returnNull" | "throw";
-export const getQueryFn: <T>(options: {
-  on401: UnauthorizedBehavior;
-}) => QueryFunction<T> =
-  ({ on401: unauthorizedBehavior }) =>
-  async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
-      credentials: "include",
-    });
-
-    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-      return null;
-    }
-
-    await throwIfResNotOk(res);
-    return await res.json();
-  };
+export function useAuthedQuery<T = unknown>(options: UseQueryOptions<T> & { 
+  queryKey: string[];
+  enabled: boolean; // REQUIRED: Must explicitly enable
+}) {
+  return useQuery<T>({
+    ...options,
+    queryFn: async (): Promise<T> => {
+      const response = await api(options.queryKey.join("/"));
+      return await response.json() as T;
+    },
+  });
+}
 
 export const queryClient = new QueryClient({
   defaultOptions: {

@@ -4,6 +4,7 @@
  */
 import { ADMIN_ROUTES } from "@/config/apiEndpoints";
 import { clearAuthState } from './auth';
+import { API_CONFIG, SECURITY_CONFIG } from '@/config/runtime';
 
 export class UnauthorizedError extends Error {
   constructor() {
@@ -12,15 +13,27 @@ export class UnauthorizedError extends Error {
   }
 }
 
-// Specification: Fetch wrapper with credentials:'include' and 401 handling
+// SPECIFICATION: Single API wrapper with runtime config (zero hardcoding)
 export async function api(path: string, init: RequestInit = {}) {
+  // Build headers from runtime config
+  const configHeaders: Record<string, string> = {
+    [API_CONFIG.CLIENT_HEADER_NAME]: API_CONFIG.CLIENT_HEADER_VALUE,
+    "Content-Type": "application/json",
+  };
+
+  // SECURITY: Never add dev headers in production
+  const headers = {
+    ...configHeaders,
+    ...(init.headers || {}),
+  };
+
   const r = await fetch(path, {
-    credentials: "include", // Specification requirement
-    headers: { "Content-Type": "application/json", ...(init.headers || {}) },
+    credentials: "include", // SPECIFICATION requirement
+    headers,
     ...init,
   });
   
-  // Specification: On 401, clear auth state and navigate to /login
+  // SPECIFICATION: On 401, clear auth state and navigate to /login
   if (r.status === 401) {
     clearAuthState();
     const currentPath = window.location.pathname + window.location.search;

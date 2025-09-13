@@ -10,7 +10,8 @@ import { API_ENDPOINTS } from "@/config/apiEndpoints";
 import Home from "@/pages/home";
 import AnalysisDetail from "@/pages/analysis-detail";
 import AdminLogin from "@/pages/admin-login";
-import RequireAuth from "@/components/RequireAuth";
+import AdminRouteLoader from "@/components/AdminRouteLoader";
+import { installFetchTrap } from "@/lib/fetch-trap";
 
 // Lazy imports for admin components - prevents loading until authenticated
 const AdminLayoutLazy = React.lazy(() => import("@/components/AdminLayout"));
@@ -58,18 +59,11 @@ function Router() {
   useEffect(() => {
     initVersionManagement().catch(console.error);
     
-    // DEV-ONLY: Network watchdog for banned routes
+    // SPECIFICATION: Install global fetch trap for unauthorized calls
+    installFetchTrap();
+    
+    // DEV-ONLY: Clear old caches 
     if (import.meta.env.DEV) {
-      const _fetch = window.fetch;
-      window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = typeof input === 'string' ? input : input.toString();
-        if (url.includes(API_ENDPOINTS.aiProviders())) {
-          console.warn('[HARD-FORBIDDEN] /api/ai/providers requested', new Error().stack);
-        }
-        return _fetch(input, init);
-      };
-      
-      // DEV-ONLY: Clear old caches 
       queryClient.clear();
       if (typeof localStorage !== 'undefined') {
         localStorage.removeItem('REACT_QUERY_OFFLINE_CACHE');
@@ -80,65 +74,65 @@ function Router() {
   return (
       <Routes>
         <Route path="/admin/login" element={<AdminLogin />} />
-        {/* Specification: Wrap /admin routes with RequireAuth guard */}
+        {/* SPECIFICATION: Router loader - no mount until auth confirmed */}
         <Route
           path="/admin/settings"
           element={
-            <RequireAuth>
+            <AdminRouteLoader>
               <Suspense fallback={<div>Loading...</div>}>
                 <AdminLayoutLazy />
               </Suspense>
-            </RequireAuth>
+            </AdminRouteLoader>
           }
         />
         <Route
           path="/admin/evidence-library"
           element={
-            <RequireAuth>
+            <AdminRouteLoader>
               <Suspense fallback={<div>Loading...</div>}>
                 <EvidenceLibraryAdminLazy />
               </Suspense>
-            </RequireAuth>
+            </AdminRouteLoader>
           }
         />
         <Route
           path="/admin/evidence-management"
           element={
-            <RequireAuth>
+            <AdminRouteLoader>
               <Suspense fallback={<div>Loading...</div>}>
                 <EvidenceLibrarySimpleLazy />
               </Suspense>
-            </RequireAuth>
+            </AdminRouteLoader>
           }
         />
         <Route
           path="/admin/evidence-library-management"
           element={
-            <RequireAuth>
+            <AdminRouteLoader>
               <Suspense fallback={<div>Loading...</div>}>
                 <EvidenceLibraryManagementLazy />
               </Suspense>
-            </RequireAuth>
+            </AdminRouteLoader>
           }
         />
         <Route
           path="/admin/fault-reference-library"
           element={
-            <RequireAuth>
+            <AdminRouteLoader>
               <Suspense fallback={<div>Loading...</div>}>
                 <FaultReferenceLibraryLazy />
               </Suspense>
-            </RequireAuth>
+            </AdminRouteLoader>
           }
         />
         <Route
           path="/admin/taxonomy-management"
           element={
-            <RequireAuth>
+            <AdminRouteLoader>
               <Suspense fallback={<div>Loading...</div>}>
                 <TaxonomyManagementLazy />
               </Suspense>
-            </RequireAuth>
+            </AdminRouteLoader>
           }
         />
         
