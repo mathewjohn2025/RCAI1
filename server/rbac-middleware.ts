@@ -17,6 +17,7 @@ import rateLimit from 'express-rate-limit';
 import { db } from './db.js';
 import { users, roles, userRoles, auditLogs } from '@shared/schema';
 import { eq, and } from 'drizzle-orm';
+import { ADMIN_ROLE_NAME } from './config.js';
 
 // Define authenticated user type
 export interface AuthenticatedUser {
@@ -180,7 +181,7 @@ export function requireAdmin(req: AuthenticatedRequest, res: Response, next: Nex
   }
 
   const userRoles = req.session.user.roles || [];
-  if (!userRoles.includes('admin')) {
+  if (!userRoles.includes(ADMIN_ROLE_NAME)) {
     return res.status(403).json({ code: 'FORBIDDEN', message: 'Admin only' });
   }
 

@@ -46,13 +46,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { UniversalAIConfig } from "./universal-ai-config";
 import { loadCryptoKey } from "./config/crypto-key";
-import { createTestAdminUser, requireAdmin } from "./rbac-middleware";
+import { createTestAdminUser, requireAdmin, loginRateLimit } from "./rbac-middleware";
 import { ADMIN_ROLE_NAME, DEFAULT_ADMIN_RETURN_URL } from './config.js';
 
-// 2. Ensure admin user exists at startup
-(async () => {
-  await createTestAdminUser();
-})();
+// SECURITY: Remove legacy test user creation - use proper seeding instead
 
 // Fail-fast boot: ensure crypto key is available
 loadCryptoKey(); // throws if missing → process exits with clear message
@@ -64,7 +61,45 @@ const pgSession = connectPgSimple(session);
 
 // sessions first
 app.set('trust proxy', 1);
-app.use(cors({ origin: true, credentials: true }));
+// SECURITY: Proper CORS configuration with allowlist
+const allowedOrigins = [
+  'http://localhost:5000',
+  'https://localhost:5000',
+  'http://127.0.0.1:5000',
+  'https://127.0.0.1:5000',
+  process.env.FRONTEND_URL,
+  // Add Replit hosting domains
+  /\.replit\.dev$/,
+  /\.repl\.co$/
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Always allow same-origin requests (no origin header) and localhost variants
+    if (!origin) return callback(null, true);
+    
+    // Check if origin matches any allowed pattern
+    const isAllowed = allowedOrigins.some(allowed => {
+      if (typeof allowed === 'string') {
+        return origin === allowed;
+      }
+      if (allowed instanceof RegExp) {
+        return allowed.test(origin);
+      }
+      return false;
+    });
+    
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      console.warn(`[SECURITY] Blocked CORS request from origin: ${origin}`);
+      callback(null, false); // Return false instead of error to prevent server crashes
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Requested-With'],
+}));
 app.use(cookieParser());
 app.use(session({
   store: new pgSession({
@@ -90,7 +125,23 @@ app.use((req,_res,next)=>{
   next();
 });
 
-// Remove diagnostic middleware - authentication working
+// SECURITY: Add CSRF protection for admin routes
+app.use('/api/admin', (req, res, next) => {
+  // Skip CSRF for GET requests (they should be safe)
+  if (req.method === 'GET') return next();
+  
+  // Simple CSRF protection: require custom header for state-changing requests
+  const csrfHeader = req.headers['x-csrf-token'] || req.headers['x-requested-with'];
+  if (!csrfHeader) {
+    console.warn(`[SECURITY] CSRF protection: Missing anti-CSRF header for ${req.method} ${req.path}`);
+    return res.status(403).json({ 
+      code: 'CSRF_PROTECTION', 
+      message: 'Missing anti-CSRF header' 
+    });
+  }
+  
+  next();
+});
 
 // Only apply JSON parsing to non-multipart requests
 app.use((req, res, next) => {
@@ -196,7 +247,7 @@ app.get('/api/auth/whoami', (req, res) => {
 });
 
 // POST /api/auth/login - Real authentication with database lookup
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', loginRateLimit, async (req, res) => {
   try {
     const { email, password } = req.body;
     
