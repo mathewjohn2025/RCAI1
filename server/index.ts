@@ -56,106 +56,35 @@ loadCryptoKey(); // throws if missing → process exits with clear message
 
 const app = express();
 
-// Session middleware with database-backed storage for scalability
-const pgSession = connectPgSimple(session);
+// ========== EXACT ORDER FROM SPECIFICATION - ZERO HARDCODING ==========
 
-// sessions first
+// 1) Trust proxy for secure cookies on Replit/any proxy
 app.set('trust proxy', 1);
-// SECURITY: Proper CORS configuration with allowlist
-const allowedOrigins = [
-  'http://localhost:5000',
-  'https://localhost:5000',
-  'http://127.0.0.1:5000',
-  'https://127.0.0.1:5000',
-  process.env.FRONTEND_URL,
-  // Add Replit hosting domains
-  /\.replit\.dev$/,
-  /\.repl\.co$/
-].filter(Boolean);
 
-app.use(cors({
-  origin: (origin, callback) => {
-    // Always allow same-origin requests (no origin header) and localhost variants
-    if (!origin) return callback(null, true);
-    
-    // Check if origin matches any allowed pattern
-    const isAllowed = allowedOrigins.some(allowed => {
-      if (typeof allowed === 'string') {
-        return origin === allowed;
-      }
-      if (allowed instanceof RegExp) {
-        return allowed.test(origin);
-      }
-      return false;
-    });
-    
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      console.warn(`[SECURITY] Blocked CORS request from origin: ${origin}`);
-      callback(null, false); // Return false instead of error to prevent server crashes
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Requested-With'],
-}));
-app.use(cookieParser());
+// 2) Sessions first
+const pgSession = connectPgSimple(session);
 app.use(session({
+  secret: process.env.SESSION_SECRET!,
+  resave: false,
+  saveUninitialized: false,
+  proxy: true,
   store: new pgSession({
     conString: process.env.DATABASE_URL,
     tableName: 'sessions',
     createTableIfMissing: true,
   }),
-  name: 'sid',
-  secret: process.env.SESSION_SECRET!,
-  resave: false,
-  saveUninitialized: false,
-  cookie: { secure: 'auto', sameSite: 'lax', httpOnly: true, path: '/' }
+  cookie: {
+    httpOnly: true,
+    secure: true,       // we're behind HTTPS on replit.dev
+    sameSite: 'lax',    // OK for same-origin app; use 'none' (with secure) if truly cross-site
+    maxAge: 1000*60*60*24*7
+  }
 }));
-// Stabilize cookie settings - prevent session drift between requests  
-app.use((req,_res,next)=>{
-  if (req.session){
-    const https = req.secure || req.get('x-forwarded-proto')==='https';
-    req.session.cookie.secure   = https;
-    req.session.cookie.sameSite = https ? 'none' : 'lax';
-    req.session.cookie.path     = '/';
-    req.session.cookie.httpOnly = true;
-  }
-  next();
-});
 
-// SECURITY: Add CSRF protection for admin routes
-app.use('/api/admin', (req, res, next) => {
-  // Skip CSRF for GET requests (they should be safe)
-  if (req.method === 'GET') return next();
-  
-  // Simple CSRF protection: require custom header for state-changing requests
-  const csrfHeader = req.headers['x-csrf-token'] || req.headers['x-requested-with'];
-  if (!csrfHeader) {
-    console.warn(`[SECURITY] CSRF protection: Missing anti-CSRF header for ${req.method} ${req.path}`);
-    return res.status(403).json({ 
-      code: 'CSRF_PROTECTION', 
-      message: 'Missing anti-CSRF header' 
-    });
-  }
-  
-  next();
-});
-
-// Only apply JSON parsing to non-multipart requests
-app.use((req, res, next) => {
-  const contentType = req.headers['content-type'] || '';
-  // Skip JSON parsing for multipart form data AND file upload routes
-  if (contentType.includes('multipart/form-data') || req.path.includes('/import')) {
-    return next();
-  }
-  return express.json({ limit: "10mb" })(req, res, next);
-});
-
+// Essential middleware before guards
+app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: false }));
 
-// ========== RBAC MIDDLEWARE ==========
 // LOGIN PAGE must be BEFORE any /admin/* guard
 const loginPageHandler = (req: any, res: any) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -176,56 +105,25 @@ const loginPageHandler = (req: any, res: any) => {
 };
 app.get('/admin/login', loginPageHandler);
 
-// Server-side legacy redirects BEFORE admin guard for consistency
-app.get('/admin/analysis-engine', (req, res) => res.redirect(302, '/analysis-engine'));
-app.get('/admin/ai-powered-rca', (req, res) => res.redirect(302, '/ai-powered-rca'));
-app.get('/admin/analysis', (req, res) => res.redirect(302, '/analysis-engine'));
-app.get('/admin/ai', (req, res) => res.redirect(302, '/ai-powered-rca'));
-
-// protect only API under /api/admin/*
-app.use('/api/admin', (req,res,next) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'unauthorized' });
-  next();
-});
-
-// protect only pages under /admin/*
-app.get('/admin/*', (req,res,next) => {
+// 3) ADMIN HTML GUARD — must run BEFORE static & SPA fallback
+app.get('/admin/*', (req, res, next) => {
   if (!req.session?.user) {
     const rt = encodeURIComponent(req.originalUrl);
     return res.redirect(302, `/admin/login?returnTo=${rt}`);
   }
+  return next();
+});
+
+// 4) ADMIN API GUARD
+app.use('/api/admin', (req, res, next) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'unauthorized' });
   next();
 });
 
-// --- ADMIN API guarded ---
-function isAdmin(req: any){ 
-  const hasAdminRole = !!(req.session?.user?.roles?.includes(ADMIN_ROLE_NAME)); 
-  return hasAdminRole;
-}
-function requireAdminApi(req: any, res: any, next: any){ return isAdmin(req) ? next() : res.status(401).json({error:'unauthorized'}); }
-const adminApi = express.Router();
-// Remove duplicate guard - unified guard applied at mount level
-adminApi.get('/whoami', (req: any, res: any) => {
-  const user = req.session?.user;
-  res.json({
-    authenticated: !!user && isAdmin(req),
-    roles: user?.roles || [],
-    user: user ? { id: user.id, email: user.email } : null
-  });
-});
-
-// Dynamic admin sections endpoint - NO HARDCODING  
-adminApi.get('/sections', async (req: any, res: any) => {
-  try {
-    const { ADMIN_SECTIONS } = await import('./config.js');
-    res.json({ sections: ADMIN_SECTIONS });
-  } catch (error) {
-    console.error('[API] Error fetching admin sections:', error);
-    res.status(500).json({ error: 'Failed to fetch admin sections' });
-  }
-});
-// Unified admin API guard - all admin endpoints use the same authentication
-app.use('/api/admin', requireAdminApi, adminApi);
+// ... your non-admin APIs here ...
+// Health endpoints (before all API routes)
+app.get('/healthz', (_req, res) => res.status(200).send('ok'));
+app.get('/version.json', (_req, res) => res.json({ build: process.env.BUILD_ID || 'dev' }));
 
 // ========== AUTH ROUTES ==========
 // GET /api/auth/whoami - Unguarded endpoint that returns real session state
@@ -235,10 +133,11 @@ app.get('/api/auth/whoami', (req, res) => {
     return res.json({ authenticated: false, roles: [], isAdmin: false });
   }
   
+  const hasAdminRole = !!(req.session?.user?.roles?.includes(ADMIN_ROLE_NAME)); 
   res.json({
     authenticated: true,
     roles: user.roles || [],
-    isAdmin: isAdmin(req),
+    isAdmin: hasAdminRole,
     user: {
       id: user.id,
       email: user.email
@@ -319,85 +218,52 @@ app.post('/api/auth/logout', (req, res) => {
   });
 });
 
-// Admin API routes are now handled by adminApi router above
-
-// E) Cache-busting middleware (dev kill-switch)
-app.use((req, res, next) => {
-  if (process.env.CACHE_KILL_SWITCH === '1') {
-    res.set('Cache-Control', 'no-store');
-    next();
-    return;
-  }
-  
-  // A) Server headers (no stale HTML, safe assets)
-  const path = req.path;
-  
-  // For HTML and JSON app shells (/, /index.html, /version.json, /api/*)
-  if (path === '/' || path === '/index.html' || path === '/version.json' || path.startsWith('/api/')) {
-    res.set('Cache-Control', 'no-store');
-  }
-  // For static assets (hashed filenames only)
-  else if (path.includes('assets/') && (path.includes('.') && path.match(/\.[a-f0-9]{8,}\./))) {
-    res.set('Cache-Control', 'public, max-age=31536000, immutable');
-  }
-  // Default to no-store for safety
-  else {
-    res.set('Cache-Control', 'no-store');
-  }
-  
-  next();
-});
-
-// Health endpoints
-app.get('/healthz', (_req, res) => res.status(200).send('ok'));
-app.get('/version.json', (_req, res) => res.json({ build: process.env.BUILD_ID || 'dev' }));
-
-// Admin guard moved to be before static serving (see below)
-
-app.use((req, res, next) => {
-  const start = UniversalAIConfig.getPerformanceTime();
-  const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-
-  res.on("finish", () => {
-    const duration = UniversalAIConfig.getPerformanceTime() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
-      log(logLine);
-    }
+// --- ADMIN API guarded (after admin guard) ---
+function isAdmin(req: any){ 
+  const hasAdminRole = !!(req.session?.user?.roles?.includes(ADMIN_ROLE_NAME)); 
+  return hasAdminRole;
+}
+function requireAdminApi(req: any, res: any, next: any){ return isAdmin(req) ? next() : res.status(401).json({error:'unauthorized'}); }
+const adminApi = express.Router();
+adminApi.get('/whoami', (req: any, res: any) => {
+  const user = req.session?.user;
+  res.json({
+    authenticated: !!user && isAdmin(req),
+    roles: user?.roles || [],
+    user: user ? { id: user.id, email: user.email } : null
   });
-
-  next();
 });
+
+adminApi.get('/sections', async (req: any, res: any) => {
+  try {
+    const { ADMIN_SECTIONS } = await import('./config.js');
+    res.json({ sections: ADMIN_SECTIONS });
+  } catch (error) {
+    console.error('[API] Error fetching admin sections:', error);
+    res.status(500).json({ error: 'Failed to fetch admin sections' });
+  }
+});
+app.use('/api/admin', requireAdminApi, adminApi);
 
 (async () => {
+  // Register all API routes IMMEDIATELY after admin guards (following exact specification order)
+  console.log("[SERVER] Registering API routes directly after admin guards");
+  try {
+    await registerRoutes(app);
+    console.log("[SERVER] registerRoutes completed successfully");
+  } catch (error) {
+    console.error("[SERVER] CRITICAL ERROR in registerRoutes:", error);
+    throw error;
+  }
+
   // CRITICAL FIX: Force built frontend mode to bypass Vite middleware API interception
-  // WORKAROUND DOCUMENTATION: Vite dev server intercepts ALL API calls returning HTML instead of JSON
-  // SOLUTION: Serve built React frontend so API calls reach backend directly
-  // REVERT CONDITION: When Vite proxy configuration becomes available in vite.config.ts
-  
   const forceBuiltMode = true; // Override to fix API interception issue
-  let server;
+  let server: any;
   
   if (app.get("env") === "development" && !forceBuiltMode) {
     log("⚠️  Using Vite dev server - API calls may be intercepted");
     
-    server = await registerRoutes(app);
-    await setupVite(app, server);
+    server = await setupVite(app, server);
     
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
       const status = err.status || err.statusCode || 500;
@@ -409,80 +275,25 @@ app.use((req, res, next) => {
   } else {
     log("🚀 SERVING BUILT FRONTEND - Bypassing Vite middleware API interception");
     
-    // CRITICAL: Register API routes FIRST, before ANY middleware or static serving
-    console.log("[SERVER] Registering API routes directly to Express app");
-    
-    // IMMEDIATE DEBUG: Add test route directly to app
-    app.get("/api/test-direct", (req, res) => {
-      console.log("[SERVER] Direct test route hit");
-      res.json({ success: true, message: "Direct route working" });
-    });
-    
-    try {
-      console.log("[SERVER] About to call registerRoutes");
-      await registerRoutes(app);
-      console.log("[SERVER] registerRoutes completed successfully");
-    } catch (error) {
-      console.error("[SERVER] CRITICAL ERROR in registerRoutes:", error);
-      throw error;
-    }
-    
-    // NOTE: Admin guard already registered at lines 192-198, no duplicate needed
-    
-    // AFTER API routes and admin guard: Serve static assets with proper cache headers
+    // 5) static files & SPA fallback LAST
     const publicPath = path.resolve(process.cwd(), 'dist/public');
     app.use(express.static(publicPath, {
-        // Cache headers to prevent stale cache issues
-        setHeaders: (res, filePath) => {
-          if (filePath.endsWith(".html")) {
-            // HTML must never be cached
-            res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-            res.setHeader("Pragma", "no-cache");
-            res.setHeader("Expires", "0");
-          } else {
-            // Hashed assets can be cached long-term
-            res.setHeader(
-              "Cache-Control",
-              "public, max-age=31536000, immutable"
-            );
-          }
-        },
-      }));
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith(".html")) {
+          res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+          res.setHeader("Pragma", "no-cache");
+          res.setHeader("Expires", "0");
+        } else {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        }
+      },
+    }));
     
-    // LAST: Handle React Router - serve index.html with no-cache headers (MUST be last)
-    app.get(["/", "/index.html"], (_req, res) => {
-      res.set("Cache-Control", "no-store, no-cache, must-revalidate");
-      res.sendFile(path.join(publicPath, "index.html"));
-    });
-    
-    app.get('*', (req, res, next) => {
-      // API routes should never reach here
-      if (req.path.startsWith('/api/')) {
-        console.log(`[Server] CRITICAL: API route ${req.path} reached catch-all - check route registration`);
-        return res.status(404).json({ error: 'API endpoint not found', path: req.path });
-      }
-      
-      // Admin routes should never reach here - admin guard should handle them
-      if (req.path.startsWith('/admin/')) {
-        console.log(`[Server] CRITICAL: Admin route ${req.path} reached SPA catch-all - admin guard bypassed`);
-        return res.status(500).json({ error: 'Admin route should be handled by admin guard', path: req.path });
-      }
-      
-      // Serve React app for all other routes with no-cache headers
-      const indexPath = path.resolve(publicPath, 'index.html');
-      res.set("Cache-Control", "no-store, no-cache, must-revalidate");
-      res.sendFile(indexPath);
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(publicPath, 'index.html'));
     });
     
     server = createServer(app);
-    
-    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-      const status = err.status || err.statusCode || 500;
-      const message = err.message || "Internal Server Error";
-      res.status(status).json({ message });
-      throw err;
-    });
-    
     log("✅ Built frontend active - API calls now reach backend directly");
   }
 
