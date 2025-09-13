@@ -19,8 +19,8 @@ export default function AIProvidersTable() {
   const [toast, setToast] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
-  // CRITICAL: Gate admin API calls - no user, no call
-  const { data: userAuth, isLoading: authLoading } = useQuery({
+  // EXACT SPECIFICATION: Gate admin queries 
+  const { data: whoami } = useQuery({
     queryKey: ['whoami'],
     queryFn: () => fetch('/api/auth/whoami', { credentials: 'include' }).then(r => r.json()),
     staleTime: 0,
@@ -31,7 +31,7 @@ export default function AIProvidersTable() {
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ['admin-providers'],
     queryFn: () => apiRequest(API_ENDPOINTS.aiProviders()),
-    enabled: !!userAuth?.user, // <-- CRITICAL. No user, no call.
+    enabled: !!whoami?.user, // <-- EXACT SPECIFICATION: enabled: !!whoami?.user
     staleTime: 0,
     gcTime: 0,
     refetchOnMount: 'always'
@@ -127,8 +127,7 @@ export default function AIProvidersTable() {
     deleteMutation.mutate(id);
   }
 
-  if (authLoading) return <div>Loading...</div>;
-  if (!userAuth?.user) return <div>Access denied</div>;
+  // Remove redundant auth check - AdminGate handles this
 
   const busy = createMutation.isPending || deleteMutation.isPending || testMutation.isPending || activateMutation.isPending;
 

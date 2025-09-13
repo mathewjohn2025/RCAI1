@@ -10,7 +10,7 @@ import { API_ENDPOINTS } from "@/config/apiEndpoints";
 import Home from "@/pages/home";
 import AnalysisDetail from "@/pages/analysis-detail";
 import AdminLogin from "@/pages/admin-login";
-import RequireAdmin from "@/components/RequireAdmin";
+import AdminGate from "@/components/AdminGate";
 
 // Lazy imports for admin components - prevents loading until authenticated
 const AdminLayoutLazy = React.lazy(() => import("@/components/AdminLayout"));
@@ -80,64 +80,61 @@ function Router() {
   return (
       <Routes>
         <Route path="/admin/login" element={<AdminLogin />} />
-        <Route
-          path="/admin/*"
-          element={
-            <RequireAdmin>
-              <Suspense fallback={null}>
-                <AdminLayoutLazy />
-              </Suspense>
-            </RequireAdmin>
-          }
-        >
-          <Route
-            path="settings"
-            element={
-              <Suspense fallback={null}>
-                <AdminSettingsLazy />
-              </Suspense>
-            }
-          />
-          <Route
-            path="evidence-library"
-            element={
-              <Suspense fallback={null}>
-                <EvidenceLibraryAdminLazy />
-              </Suspense>
-            }
-          />
-          <Route
-            path="evidence-management"
-            element={
-              <Suspense fallback={null}>
-                <EvidenceLibrarySimpleLazy />
-              </Suspense>
-            }
-          />
-          <Route
-            path="evidence-library-management"
-            element={
-              <Suspense fallback={null}>
-                <EvidenceLibraryManagementLazy />
-              </Suspense>
-            }
-          />
-          <Route
-            path="fault-reference-library"
-            element={
-              <Suspense fallback={null}>
-                <FaultReferenceLibraryLazy />
-              </Suspense>
-            }
-          />
-          <Route
-            path="taxonomy-management"
-            element={
-              <Suspense fallback={null}>
-                <TaxonomyManagementLazy />
-              </Suspense>
-            }
-          />
+        <Route path="/admin" element={<AdminGate />}>
+          <Route element={
+            <Suspense fallback={null}>
+              <AdminLayoutLazy />
+            </Suspense>
+          }>
+            <Route
+              path="settings"
+              element={
+                <Suspense fallback={null}>
+                  <AdminSettingsLazy />
+                </Suspense>
+              }
+            />
+            <Route
+              path="evidence-library"
+              element={
+                <Suspense fallback={null}>
+                  <EvidenceLibraryAdminLazy />
+                </Suspense>
+              }
+            />
+            <Route
+              path="evidence-management"
+              element={
+                <Suspense fallback={null}>
+                  <EvidenceLibrarySimpleLazy />
+                </Suspense>
+              }
+            />
+            <Route
+              path="evidence-library-management"
+              element={
+                <Suspense fallback={null}>
+                  <EvidenceLibraryManagementLazy />
+                </Suspense>
+              }
+            />
+            <Route
+              path="fault-reference-library"
+              element={
+                <Suspense fallback={null}>
+                  <FaultReferenceLibraryLazy />
+                </Suspense>
+              }
+            />
+            <Route
+              path="taxonomy-management"
+              element={
+                <Suspense fallback={null}>
+                  <TaxonomyManagementLazy />
+                </Suspense>
+              }
+            />
+          </Route>
         </Route>
         
         <Route path="/new" element={<NewInvestigation />} />

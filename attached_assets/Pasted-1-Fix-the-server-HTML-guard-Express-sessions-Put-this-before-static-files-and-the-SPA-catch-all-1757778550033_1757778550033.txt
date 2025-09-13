@@ -1,0 +1,75 @@
+1) Fix the server HTML guard (Express + sessions)
+Put this before static files and the SPA catch-all:
+app.set('trust proxy', 1);
+
+app.use(session({
+  secret: process.env.SESSION_SECRET!,
+  resave: false,
+  saveUninitialized: false,
+  proxy: true,
+  cookie: {
+    httpOnly: true,
+    secure: true,        // replit.dev is HTTPS
+    sameSite: 'lax',     // or 'none' + secure:true if you truly cross origins
+    maxAge: 1000*60*60*24*7
+  }
+}));
+
+// HTML guard for admin PAGES (must redirect, not JSON)
+app.get('/admin/*', (req, res, next) => {
+  if (!req.session?.user) {
+    const rt = encodeURIComponent(req.originalUrl);
+    return res.redirect(302, `/admin/login?returnTo=${rt}`);
+  }
+  next();
+});
+
+// API guard (JSON 401 is correct here)
+app.use('/api/admin', (req, res, next) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'unauthorized' });
+  next();
+});
+
+// static + SPA LAST
+app.use(express.static(path.join(__dirname, 'client', 'dist')));
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'client', 'dist', 'index.html'));
+});
+Your JSON error proves either (a) the route order is wrong, or (b) the /admin/* handler is returning JSON instead of redirect. Fix that first.
+2) Make the client gate block render (no localStorage “auth”)
+Use a whoami check and don’t mount admin UI until it resolves:
+const AdminGate = () => {
+  const loc = useLocation();
+  const { data, isLoading } = useQuery(
+    ['whoami'],
+    () => fetch('/api/auth/whoami', { credentials:'include' }).then(r => r.json()),
+    { staleTime: 0, cacheTime: 0, refetchOnMount: 'always' }
+  );
+
+  if (isLoading) return null; // or spinner; DO NOT render admin shell yet
+  if (!data?.user) {
+    return <Navigate to={`/admin/login?returnTo=${encodeURIComponent(loc.pathname+loc.search)}`} replace />;
+  }
+  return <Outlet/>;
+};
+
+<Route path="/admin" element={<AdminGate />}>
+  <Route element={<AdminLayout />}>
+    <Route path="settings" element={<AISettings />} />
+  </Route>
+</Route>
+In AISettings, gate admin queries:
+const { data: whoami } = useQuery(['whoami'], ...);
+useQuery(['admin-providers'], () => api('/api/admin/ai/providers'),
+  { enabled: !!whoami?.user }
+);
+Also ensure all admin API calls go through your wrapper with credentials: 'include'.
+3) Cookie/origin sanity (explains “from home tab vs direct tab”)
+In each path open DevTools Console and run:
+location.origin
+document.cookie
+If origins differ (e.g., *.repl.co vs *.replit.dev), you’re testing with different cookies. Keep one origin if possible; otherwise set cookies with sameSite:'none', secure:true and app.set('trust proxy', 1). Always fetch with credentials:'include'.
+Quick verification
+Incognito → hit /admin/settings directly → must 302 to /admin/login?... (Network tab shows 302).
+From / click to Admin → you should see immediate client redirect to login; no admin UI flashes, no 401 logs.
+After login, the Set-Cookie header appears on the response, and only then do admin queries run.
