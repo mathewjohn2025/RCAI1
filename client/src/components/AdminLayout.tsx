@@ -13,7 +13,7 @@ export default function AdminLayout() {
     
     (async () => {
       try {
-        const r = await fetch(API_ENDPOINTS.adminWhoami(), { credentials: 'include' });
+        const r = await fetch(API_ENDPOINTS.authWhoami(), { credentials: 'include' });
         if (!canceled) {
           if (!r.ok) {
             const returnTo = encodeURIComponent(location.pathname + location.search + location.hash);
@@ -21,7 +21,7 @@ export default function AdminLayout() {
             return;
           }
           const j = await r.json().catch(() => ({}));
-          if (!j?.authenticated) {
+          if (!j?.authenticated || !j?.isAdmin) {
             const returnTo = encodeURIComponent(location.pathname + location.search + location.hash);
             navigate(`${ADMIN_ROUTES.LOGIN}?returnTo=${returnTo}`, { replace: true });
           }

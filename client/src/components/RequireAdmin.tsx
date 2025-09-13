@@ -10,10 +10,10 @@ export default function RequireAdmin({ children }: { children: React.ReactNode }
     let canceled = false;
     (async () => {
       try {
-        const r = await fetch(API_ENDPOINTS.adminWhoami(), { credentials: "include" });
+        const r = await fetch(API_ENDPOINTS.authWhoami(), { credentials: "include" });
         if (!r.ok) { if (!canceled) setOk(false); return; }
         const j = await r.json().catch(() => ({}));
-        if (!canceled) setOk(!!j?.authenticated);
+        if (!canceled) setOk(!!j?.authenticated && !!j?.isAdmin);
       } catch {
         if (!canceled) setOk(false);
       }
