@@ -46,7 +46,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { UniversalAIConfig } from "./universal-ai-config";
 import { loadCryptoKey } from "./config/crypto-key";
-import { createTestAdminUser, requireAdmin, loginRateLimit } from "./rbac-middleware";
+import { createTestAdminUser, loginRateLimit } from "./rbac-middleware";
 import { ADMIN_ROLE_NAME, DEFAULT_ADMIN_RETURN_URL } from './config.js';
 
 // SECURITY: Remove legacy test user creation - use proper seeding instead

@@ -3,16 +3,30 @@
  * NO HARDCODING - Works with any provider/model combination
  */
 import { ADMIN_ROUTES } from "@/config/apiEndpoints";
+import { clearAuthState } from './auth';
 
+export class UnauthorizedError extends Error {
+  constructor() {
+    super('Unauthorized');
+    this.name = 'UnauthorizedError';
+  }
+}
+
+// Specification: Fetch wrapper with credentials:'include' and 401 handling
 export async function api(path: string, init: RequestInit = {}) {
   const r = await fetch(path, {
-    credentials: "include",
+    credentials: "include", // Specification requirement
     headers: { "Content-Type": "application/json", ...(init.headers || {}) },
     ...init,
   });
+  
+  // Specification: On 401, clear auth state and navigate to /login
   if (r.status === 401) {
-    window.location.href = ADMIN_ROUTES.LOGIN;
-    throw new Error("unauthorized");
+    clearAuthState();
+    const currentPath = window.location.pathname + window.location.search;
+    const returnUrl = encodeURIComponent(currentPath);
+    window.location.href = `/login?returnTo=${returnUrl}`;
+    throw new UnauthorizedError();
   }
   return r;
 }
