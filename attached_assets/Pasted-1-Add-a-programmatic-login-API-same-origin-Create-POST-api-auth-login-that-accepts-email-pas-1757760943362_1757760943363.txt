@@ -1,0 +1,78 @@
+1.	Add a programmatic login API (same origin)
+Create POST /api/auth/login that accepts { email, password }, verifies the admin user, sets the session, saves it, and responds 200.
+// server/auth.ts
+import type { Request, Response } from 'express';
+import { findUserByEmail, verifyPassword } from './lib/users'; // existing helpers
+
+export async function login(req: Request, res: Response) {
+  const { email, password, returnTo } = req.body || {};
+  const user = await findUserByEmail(email);
+  if (!user) return res.status(401).json({ error: 'invalid' });
+  const ok = await verifyPassword(password, user.passwordHash);
+  if (!ok || user.role !== process.env.ADMIN_ROLE_NAME) {
+    return res.status(401).json({ error: 'invalid' });
+  }
+  req.session.user = { id: user.id, role: user.role };
+  req.session.save(() => res.status(200).json({ ok: true, role: user.role, returnTo: returnTo || '/admin' }));
+}
+Wire it up:
+// server/index.ts
+import express from 'express';
+import session from 'express-session';
+import { login } from './auth';
+
+app.use(session({
+  name: 'sid',
+  secret: process.env.SESSION_SECRET!,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    sameSite: 'Lax',
+    secure: true,   // replit preview is https
+    path: '/',
+  },
+}));
+
+app.post('/api/auth/login', express.json(), login);
+
+// Guards (unchanged)
+app.use('/api/admin', requireAdminApi, adminApi);
+app.get('/admin/*', requireAdminPage);
+2.	Provide admin credentials via env, not code
+In .env (or Replit Secrets), set:
+ADMIN_ROLE_NAME=admin
+ADMIN_EMAIL=you@example.com
+ADMIN_PASSWORD=your-strong-password
+SESSION_SECRET=32+ char random
+Make sure an admin user with that email exists (seed script or migration). Do not hardcode these in code.
+3.	Add a seed script the agent can run once
+// scripts/seedAdmin.ts
+import { upsertAdmin } from '../server/lib/users';
+await upsertAdmin(process.env.ADMIN_EMAIL!, process.env.ADMIN_PASSWORD!, process.env.ADMIN_ROLE_NAME || 'admin');
+console.log('admin ready');
+Run: tsx scripts/seedAdmin.ts
+4.	Make the frontend always send credentials
+Where the AI Settings UI calls admin APIs:
+await fetch('/api/admin/ai-providers', {
+  method: 'GET',
+  credentials: 'include'
+});
+(If using axios: axios.defaults.withCredentials = true.)
+5.	Make the agent log in programmatically before admin calls
+Have the agent call (same origin!) and keep the returned cookie:
+# Example the agent can emulate
+curl -i -c /tmp/cjar -b /tmp/cjar \
+  -H "Content-Type: application/json" \
+  -d '{"email":"'"$ADMIN_EMAIL"'","password":"'"$ADMIN_PASSWORD"'"}' \
+  https://<your-replit-preview>/api/auth/login
+
+# Then call admin APIs with the cookie jar:
+curl -i -c /tmp/cjar -b /tmp/cjar https://<your-replit-preview>/api/admin/ai-providers
+6.	Add a diagnostic endpoint so the agent can assert it’s logged in
+app.get('/api/auth/whoami', (req, res) =>
+  res.json({ user: req.session?.user || null })
+);
+7.	Keep one origin & relative URLs
+Ensure the frontend calls "/api/..." (no hardcoded host/port). This avoids CORS and cookie loss.
+
