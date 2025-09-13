@@ -61,6 +61,14 @@ const app = express();
 // 1) Trust proxy for secure cookies on Replit/any proxy
 app.set('trust proxy', 1);
 
+// CORS with credentials per specification
+app.use(cors({
+  origin: true, // Allow all origins for development
+  credentials: true, // Required for session cookies
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
+}));
+
 // 2) Sessions first
 const pgSession = connectPgSimple(session);
 app.use(session({
@@ -75,8 +83,8 @@ app.use(session({
   }),
   cookie: {
     httpOnly: true,
-    secure: true,       // we're behind HTTPS on replit.dev
-    sameSite: 'lax',    // OK for same-origin app; use 'none' (with secure) if truly cross-site
+    secure: true,       // Required per specification
+    sameSite: 'none',   // Required per specification for CORS
     maxAge: 1000*60*60*24*7
   }
 }));
@@ -114,11 +122,21 @@ app.get('/admin/*', (req, res, next) => {
   return next();
 });
 
-// 4) ADMIN API GUARD
-app.use('/api/admin', (req, res, next) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'unauthorized' });
+// 4) ADMIN API GUARD - Accept header detection per specification
+const requireAdmin = (req: any, res: any, next: any) => {
+  if (!req.session?.user) {
+    // Check Accept header - if includes text/html, redirect; otherwise 401 JSON
+    const acceptsHtml = req.headers.accept && req.headers.accept.includes('text/html');
+    if (acceptsHtml) {
+      return res.redirect('/login');
+    } else {
+      return res.status(401).json({ error: 'unauthorized' });
+    }
+  }
   next();
-});
+};
+
+app.use('/api/admin', requireAdmin);
 
 // ... your non-admin APIs here ...
 // Health endpoints (before all API routes)
