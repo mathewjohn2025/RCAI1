@@ -3,28 +3,17 @@
  * All network calls must go through this client
  */
 
-// Authentication cache for admin API protection
-let authCache: 'unknown' | 'authedAdmin' | 'notAdmin' = 'unknown';
-
-// Preflight authentication check for admin endpoints
+// Preflight authentication check for admin endpoints - NO CACHING
 async function checkAdminAuth(): Promise<boolean> {
-  if (authCache !== 'unknown') {
-    return authCache === 'authedAdmin';
-  }
-
   try {
     const res = await fetch('/api/auth/whoami', { credentials: 'include' });
     if (!res.ok) {
-      authCache = 'notAdmin';
       return false;
     }
     
     const data = await res.json();
-    const isAdmin = data?.authenticated && data?.isAdmin;
-    authCache = isAdmin ? 'authedAdmin' : 'notAdmin';
-    return isAdmin;
+    return data?.authenticated && data?.isAdmin;
   } catch (error) {
-    authCache = 'notAdmin';
     return false;
   }
 }

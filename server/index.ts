@@ -427,14 +427,7 @@ app.use((req, res, next) => {
       throw error;
     }
     
-    // Server guard must run BEFORE React is served
-    app.get('/admin/*',(req,res,next)=>{
-      if(!req.session?.user){
-        const rt = encodeURIComponent(req.originalUrl);
-        return res.redirect(302, `/admin/login?returnTo=${rt}`);
-      }
-      next();
-    });
+    // NOTE: Admin guard already registered at lines 192-198, no duplicate needed
     
     // AFTER API routes and admin guard: Serve static assets with proper cache headers
     const publicPath = path.resolve(process.cwd(), 'dist/public');
@@ -467,6 +460,12 @@ app.use((req, res, next) => {
       if (req.path.startsWith('/api/')) {
         console.log(`[Server] CRITICAL: API route ${req.path} reached catch-all - check route registration`);
         return res.status(404).json({ error: 'API endpoint not found', path: req.path });
+      }
+      
+      // Admin routes should never reach here - admin guard should handle them
+      if (req.path.startsWith('/admin/')) {
+        console.log(`[Server] CRITICAL: Admin route ${req.path} reached SPA catch-all - admin guard bypassed`);
+        return res.status(500).json({ error: 'Admin route should be handled by admin guard', path: req.path });
       }
       
       // Serve React app for all other routes with no-cache headers

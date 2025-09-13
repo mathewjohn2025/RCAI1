@@ -1,0 +1,42 @@
+Run these in order; each either passes or pinpoints the fault.
+1.	Server order check (must block HTML first)
+o	In your server setup, ensure this exact order:
+1.	Session middleware
+2.	app.get('/admin/*', adminPageGuard) → if !req.session.user then res.redirect('/admin/login?returnTo=...')
+3.	API routers
+4.	Static file serving + SPA fallback app.get('*', send index.html)
+o	If the SPA fallback runs before the /admin/* guard, users will always get index.html (admin shell) unauthenticated.
+2.	Prove the redirect without the SPA
+o	From a fresh private/incognito window with no cookies, hit:
+	GET /admin/settings (HTML route)
+	Expected: 302/303 redirect to /admin/login?...
+If you get 200 with HTML for the SPA, your server guard isn’t running for pages.
+3.	Kill client race conditions
+o	In RequireAdmin (or your layout guard), implement a strict tri-state:
+	loading → render nothing but a spinner (no admin shell, no children).
+	unauthenticated → immediate navigate('/admin/login?returnTo=...').
+	authenticated → render children.
+o	Do not render the admin layout until auth is known true.
+4.	Block rendering at route level (React Router v6)
+o	Prefer loader-based protection or a wrapper element that returns <Navigate .../> synchronously when not authed. Example pattern:
+o	const AdminGate = () => {
+o	  const { status, user } = useAuth(); // status: 'idle'|'loading'|'authed'|'guest'
+o	  if (status === 'loading' || status === 'idle') return null; // show spinner, not layout
+o	  if (!user) return <Navigate to={`/admin/login?returnTo=${encodeURIComponent(location.pathname+location.search)}`} replace />;
+o	  return <Outlet/>;
+o	};
+o	
+o	<Route path="/admin" element={<AdminGate/>}>
+o	  <Route path="settings" element={<AISettings/>} />
+o	  ...
+o	</Route>
+o	Key: don’t mount AISettings or AdminLayout at all until authed.
+5.	Purge any client auth cache
+o	Search for any localStorage/sessionStorage flags like isAuthed, whoami, etc. Remove them or make them ignore cached values on initial load.
+o	Ensure the whoami does not treat any cache as authoritative at startup.
+6.	Session cookie sanity
+o	Confirm cookie settings: HttpOnly, SameSite=Lax (or None + Secure if cross-site), correct domain and path.
+o	If the cookie doesn’t attach on some navigations (new tab, different subdomain), you’ll get mismatched states.
+7.	Nuke dev backdoors
+o	Grep for development IDs, bypass guards, or if (process.env.NODE_ENV !== 'production') blocks that skip auth.
+o	Remove any “development login” code paths. Zero-hardcoding also means no seeded client bypass logic.

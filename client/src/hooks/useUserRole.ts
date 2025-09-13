@@ -14,16 +14,8 @@ interface User {
   permissions: string[];
 }
 
-// Mock user for development - replace with actual auth
-const mockUser: User = {
-  id: 'dev-user-1',
-  name: 'Development User',
-  role: 'investigator', // Change this to test different roles
-  permissions: ['rca.investigate', 'rca.analyze', 'evidence.view']
-};
-
 export function useUserRole() {
-  const [user, setUser] = useState<User | null>(mockUser);
+  const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const hasPermission = (permission: string): boolean => {
