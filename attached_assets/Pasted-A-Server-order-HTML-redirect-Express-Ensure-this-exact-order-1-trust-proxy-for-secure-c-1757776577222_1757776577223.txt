@@ -1,0 +1,93 @@
+A) Server: order + HTML redirect (Express)
+Ensure this exact order:
+// 1) trust proxy for secure cookies on Replit/any proxy
+app.set('trust proxy', 1);
+
+// 2) sessions first
+app.use(session({
+  secret: process.env.SESSION_SECRET!,
+  resave: false,
+  saveUninitialized: false,
+  proxy: true,
+  cookie: {
+    httpOnly: true,
+    secure: true,       // we're behind HTTPS on replit.dev
+    sameSite: 'lax',    // OK for same-origin app; use 'none' (with secure) if truly cross-site
+    maxAge: 1000*60*60*24*7
+  }
+}));
+
+// 3) ADMIN HTML GUARD — must run BEFORE static & SPA fallback
+app.get('/admin/*', (req, res, next) => {
+  if (!req.session?.user) {
+    const rt = encodeURIComponent(req.originalUrl);
+    return res.redirect(302, `/admin/login?returnTo=${rt}`);
+  }
+  return next();
+});
+
+// 4) ADMIN API GUARD
+app.use('/api/admin', (req, res, next) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'unauthorized' });
+  next();
+});
+
+// ... your non-admin APIs here ...
+
+// 5) static files & SPA fallback LAST
+app.use(express.static(path.join(__dirname, 'client', 'dist')));
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'client', 'dist', 'index.html'));
+});
+Important:
+•	The /admin/* handler must redirect for HTML, never JSON. If you currently send JSON there, replace it with the redirect above.
+•	Keep the API guard JSON 401 for /api/admin/* (that’s correct).
+B) Frontend: do not render admin pages until authed
+Route gate (React Router v6):
+const AdminGate = () => {
+  const loc = useLocation();
+  const { data, isLoading } = useQuery(
+    ['whoami'],
+    () => fetch('/api/auth/whoami', { credentials: 'include' }).then(r => r.json()),
+    { staleTime: 0, cacheTime: 0, refetchOnMount: 'always' }
+  );
+
+  if (isLoading) return null; // or a spinner—NO admin layout yet
+  if (!data?.user) {
+    return <Navigate to={`/admin/login?returnTo=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
+  }
+  return <Outlet />;
+};
+
+// Routes
+<Route path="/admin" element={<AdminGate />}>
+  <Route element={<AdminLayout />}>
+    <Route path="settings" element={<AISettings />} />
+    {/* other admin routes */}
+  </Route>
+</Route>
+In AISettings data hooks / React Query, gate the calls:
+const { data, isLoading } = useQuery(
+  ['admin-providers'],
+  () => apiRequest('/api/admin/ai/providers'), // your guarded wrapper (credentials: 'include')
+  { enabled: !!user } // <-- CRITICAL. No user, no call.
+);
+Also:
+•	Search the client for any direct fetch('/api/admin/ or axios('/api/admin/ calls and replace with your guarded helper.
+The console shows a call went out; that means this page is bypassing the preflight guard.
+C) Cookie sanity (this closes the “works one way, not the other” subtlety)
+•	With Express behind Replit’s proxy you must have:
+o	app.set('trust proxy', 1)
+o	session cookie { secure: true, sameSite: 'lax' } (or 'none' + secure: true if your frontend uses a different origin)
+•	Your fetch wrappers must include credentials: 'include'.
+2-minute verification checklist
+In a private window (no cookies):
+1.	Visit /admin/settings directly → expect 302 to /admin/login?... (Network tab shows 302; page shows the login form).
+2.	Login with your setup credentials → the login response must contain Set-Cookie (check Network → Response Headers).
+o	If no Set-Cookie, your secure/sameSite/trust proxy config is wrong.
+3.	After login, you land on the returnTo page. Now:
+o	On the Console, you should NOT see GET /api/admin/ai/providers fire before the gate resolves.
+o	The React Query for providers should only run after whoami = authenticated.
+4.	From the home page, click to AI Settings: you should be immediately redirected to login if not authed, and you should never see the admin UI with 401s in the console.
+
+
