@@ -237,6 +237,12 @@ app.get('/api/admin/bootstrap', requireAdmin, (_req, res) => {
   });
 });
 
+// Admin canary endpoint
+app.get('/api/admin/canary', requireAdmin, (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ ok: true, now: new Date().toISOString() });
+});
+
 // Step 1: Single truth endpoint for auth (MUST be before static serving)
 app.get('/api/me', (req, res) => {
   res.set('Cache-Control', 'no-store'); // never cache auth
