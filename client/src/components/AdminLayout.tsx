@@ -1,4 +1,6 @@
 import { useLoaderData, NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { API_ENDPOINTS } from '../config/apiEndpoints';
+import { apiRaw } from '../lib/api';
 
 type LoaderData = { 
   me: { authenticated: boolean; isAdmin: boolean }; 
@@ -18,9 +20,8 @@ export default function AdminLayout() {
 
   const handleLogout = async () => {
     try {
-      const response = await fetch('/api/auth/logout', {
+      const response = await apiRaw(API_ENDPOINTS.authLogout(), {
         method: 'POST',
-        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },

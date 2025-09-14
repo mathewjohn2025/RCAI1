@@ -83,6 +83,7 @@ export const API_ENDPOINTS = {
   // Auth endpoints
   authWhoami: () => buildApiEndpoint('/auth/whoami'),
   authLogin: () => buildApiEndpoint('/auth/login'),
+  authLogout: () => buildApiEndpoint('/auth/logout'),
 } as const;
 
 // ZERO HARDCODING: Admin navigation routes - environment configurable
