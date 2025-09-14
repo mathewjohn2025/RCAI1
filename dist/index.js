@@ -19838,7 +19838,7 @@ app2.get("/api/me", (req, res) => {
     console.error("[SERVER] CRITICAL ERROR in registerRoutes:", error);
     throw error;
   }
-  const dist = path5.resolve(__dirname, "../client/dist");
+  const dist = path5.resolve(__dirname, "../dist/public");
   app2.use(express2.static(dist));
   app2.get(/^\/(?!api\/).*/, (_req, res) => {
     res.set("Cache-Control", "no-store");
