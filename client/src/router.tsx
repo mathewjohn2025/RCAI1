@@ -47,13 +47,7 @@ export const router = createBrowserRouter([
               return { Component: module.default, loader: module.loader };
             }
           },
-          { 
-            path: 'evidence', 
-            lazy: async () => {
-              const Component = await import('./pages/evidence-library-admin');
-              return { Component: Component.default };
-            }
-          },
+          { path: 'evidence', element: <div style={{padding:12,background:'#ffef9f'}}>EVIDENCE CANARY</div> },
           { 
             path: 'taxonomy', 
             lazy: async () => {
