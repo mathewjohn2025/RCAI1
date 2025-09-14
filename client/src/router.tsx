@@ -1,4 +1,4 @@
-import { createBrowserRouter, Outlet, useRouteError } from 'react-router-dom';
+import { createBrowserRouter, Outlet, useRouteError, Navigate } from 'react-router-dom';
 import Home from './pages/Home';
 import Login from './auth/Login';
 import AdminLayout from './admin/AdminLayout';
@@ -63,6 +63,11 @@ export const router = createBrowserRouter([
           },
         ],
       },
+      
+      // NEW: normalize weird encoded paths like "/%3F__seed=…"
+      { path: '%3F/*', element: <Navigate to="/" replace /> },
+      // NEW: catch-all fallback
+      { path: '*', element: <Navigate to="/" replace /> },
     ],
   },
 ]);

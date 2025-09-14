@@ -19662,6 +19662,7 @@ init_crypto_key();
 init_rbac_middleware();
 init_config();
 import path5 from "path";
+import fs6 from "fs";
 import { fileURLToPath } from "url";
 import session from "express-session";
 import cors from "cors";
@@ -19827,6 +19828,29 @@ app2.get("/api/me", (req, res) => {
   return res.json({
     id: req.session.user.id,
     role: req.session.user.roles?.includes("admin") ? "admin" : "user"
+  });
+});
+app2.get("/__spa-debug", (_req, res) => {
+  const variants = [
+    path5.resolve(__dirname, "../client/dist"),
+    path5.resolve(__dirname, "../../client/dist"),
+    path5.resolve(process.cwd(), "client/dist"),
+    path5.resolve(process.cwd(), "dist")
+  ];
+  const results = variants.map((dist) => {
+    const indexPath = path5.join(dist, "index.html");
+    return {
+      dist,
+      indexPath,
+      existsDist: fs6.existsSync(dist),
+      existsIndex: fs6.existsSync(indexPath)
+    };
+  });
+  res.set("Cache-Control", "no-store");
+  res.json({
+    __dirname,
+    cwd: process.cwd(),
+    results
   });
 });
 (async () => {
