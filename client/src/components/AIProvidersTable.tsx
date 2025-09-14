@@ -21,14 +21,14 @@ export default function AIProvidersTable() {
   const [toast, setToast] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
-  // SPECIFICATION: Auth check using runtime config
+  // DISABLED: Auth handled by adminLoader, not individual components
   const { data: whoami } = useQuery({
     queryKey: [API_CONFIG.AUTH_WHOAMI_ENDPOINT],
     queryFn: async () => {
       const response = await api(API_CONFIG.AUTH_WHOAMI_ENDPOINT);
       return await response.json();
     },
-    enabled: true, // SPECIFICATION: Auth check always enabled
+    enabled: false, // DISABLED: Auth handled by route loaders
     staleTime: 0,
     gcTime: 0,
     refetchOnMount: 'always'
@@ -40,7 +40,7 @@ export default function AIProvidersTable() {
   const { data: rows = [], isLoading } = useAuthedQuery<ProviderRow[]>({
     queryKey: PROVIDERS_QUERY_KEY,
     url: API_ENDPOINTS.aiProviders(), // SPECIFICATION: Actual URL from API_ENDPOINTS (config-driven)
-    enabled: !!whoami?.user, // SPECIFICATION: Must explicitly enable
+    enabled: false, // DISABLED: Data should come from route loaders, not unauthorized calls
     staleTime: 0,
     gcTime: 0,
     refetchOnMount: 'always'

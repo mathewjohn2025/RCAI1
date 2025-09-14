@@ -3,8 +3,22 @@ import AdminLogin from './pages/admin-login';
 import AdminLayout from './components/AdminLayout';
 import { adminLoader } from './routes/adminLoader';
 
+// Add a simple Home component
+function HomePage() {
+  return (
+    <div className="p-8">
+      <h1 className="text-3xl font-bold mb-4">RCA Intelligence Pro</h1>
+      <p className="mb-4">AI-Powered Root Cause Analysis Platform</p>
+      <a href="/admin" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+        Access Admin Panel
+      </a>
+    </div>
+  );
+}
+
 export const router = createBrowserRouter([
-  { path: '/login', element: <AdminLogin /> },
+  { path: '/', element: <HomePage /> },
+  { path: '/admin/login', element: <AdminLogin /> },
   {
     path: '/admin',
     element: <AdminLayout />,
