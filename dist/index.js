@@ -68,9 +68,11 @@ __export(schema_exports, {
   rcaHistory: () => rcaHistory,
   rcaTriage: () => rcaTriage,
   riskRankings: () => riskRankings,
+  roles: () => roles,
   sessions: () => sessions,
   stakeholders: () => stakeholders,
   symptoms: () => symptoms,
+  userRoles: () => userRoles,
   users: () => users,
   validateIncidentId: () => validateIncidentId,
   workflows: () => workflows
@@ -96,7 +98,7 @@ import {
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var INCIDENT_ID_REGEX, validateIncidentId, sessions, users, faultReferenceLibrary, insertFaultReferenceLibrarySchema, evidenceItems, evidenceLibrary, insertEvidenceItemSchema, insertEvidenceLibrarySchema, investigations, aiSettings, aiProviders, insertInvestigationSchema, insertAiSettingsSchema, insertAiProvidersSchema, libraryUpdateProposals, insertLibraryUpdateProposalSchema, historicalPatterns, insertHistoricalPatternSchema, equipmentGroups, insertEquipmentGroupSchema, equipmentTypes, insertEquipmentTypeSchema, equipmentSubtypes, insertEquipmentSubtypeSchema, riskRankings, insertRiskRankingSchema, auditLogs, insertAuditLogSchema, incidents, rcaTriage, insertRcaTriageSchema, rcaHistory, insertRcaHistorySchema, insertIncidentSchema, analyses, insertAnalysisSchema, ISO14224_EQUIPMENT_TYPES, EQUIPMENT_TYPES, EQUIPMENT_PARAMETERS, FAULT_TREE_TEMPLATES, ECFA_COMPONENTS, manufacturers, insertManufacturerSchema, models, insertModelSchema, assets, insertAssetSchema, incidentsNew, insertIncidentNewSchema, symptoms, insertSymptomSchema, workflows, insertWorkflowSchema, stakeholders, insertStakeholderSchema, approvals, insertApprovalSchema, notifications, insertNotificationSchema, evidence, insertEvidenceSchema;
+var INCIDENT_ID_REGEX, validateIncidentId, sessions, users, roles, userRoles, faultReferenceLibrary, insertFaultReferenceLibrarySchema, evidenceItems, evidenceLibrary, insertEvidenceItemSchema, insertEvidenceLibrarySchema, investigations, aiSettings, aiProviders, insertInvestigationSchema, insertAiSettingsSchema, insertAiProvidersSchema, libraryUpdateProposals, insertLibraryUpdateProposalSchema, historicalPatterns, insertHistoricalPatternSchema, equipmentGroups, insertEquipmentGroupSchema, equipmentTypes, insertEquipmentTypeSchema, equipmentSubtypes, insertEquipmentSubtypeSchema, riskRankings, insertRiskRankingSchema, auditLogs, insertAuditLogSchema, incidents, rcaTriage, insertRcaTriageSchema, rcaHistory, insertRcaHistorySchema, insertIncidentSchema, analyses, insertAnalysisSchema, ISO14224_EQUIPMENT_TYPES, EQUIPMENT_TYPES, EQUIPMENT_PARAMETERS, FAULT_TREE_TEMPLATES, ECFA_COMPONENTS, manufacturers, insertManufacturerSchema, models, insertModelSchema, assets, insertAssetSchema, incidentsNew, insertIncidentNewSchema, symptoms, insertSymptomSchema, workflows, insertWorkflowSchema, stakeholders, insertStakeholderSchema, approvals, insertApprovalSchema, notifications, insertNotificationSchema, evidence, insertEvidenceSchema;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -112,15 +114,39 @@ var init_schema = __esm({
       (table) => [index("IDX_session_expire").on(table.expire)]
     );
     users = pgTable("users", {
-      id: varchar("id").primaryKey().notNull(),
-      email: varchar("email").unique(),
+      id: varchar("id").primaryKey().notNull().default(sql`gen_random_uuid()`),
+      email: text("email").unique().notNull(),
+      passwordHash: text("password_hash"),
+      // argon2id or bcrypt hash
+      emailVerifiedAt: timestamp("email_verified_at"),
+      isActive: boolean("is_active").default(true).notNull(),
+      mfaSecret: text("mfa_secret"),
+      // For TOTP, optional
       firstName: varchar("first_name"),
       lastName: varchar("last_name"),
       profileImageUrl: varchar("profile_image_url"),
-      role: varchar("role", { length: 32 }).default("viewer").notNull(),
-      createdAt: timestamp("created_at").defaultNow(),
-      updatedAt: timestamp("updated_at").defaultNow()
+      // Keep legacy role field for backward compatibility during transition
+      role: varchar("role", { length: 32 }).default("user").notNull(),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
+    roles = pgTable("roles", {
+      id: serial("id").primaryKey(),
+      name: text("name").unique().notNull(),
+      // 'admin', 'manager', 'user'
+      description: text("description"),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    });
+    userRoles = pgTable("user_roles", {
+      userId: varchar("user_id").notNull(),
+      roleId: integer("role_id").notNull(),
+      createdAt: timestamp("created_at").defaultNow().notNull()
+    }, (table) => ({
+      pk: unique().on(table.userId, table.roleId),
+      userIdIndex: index("user_roles_user_id_idx").on(table.userId),
+      roleIdIndex: index("user_roles_role_id_idx").on(table.roleId)
+    }));
     faultReferenceLibrary = pgTable("fault_reference_library", {
       id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
       evidenceType: varchar("evidence_type", { length: 32 }).notNull(),
@@ -373,13 +399,14 @@ var init_schema = __esm({
       // 12-byte IV -> base64 ~16 chars; pad
       keyTagB64: varchar("key_tag_b64", { length: 48 }).notNull(),
       // 16-byte tag -> base64
-      active: boolean("active").default(false).notNull(),
+      active: boolean("is_active").default(false).notNull(),
       createdBy: varchar("created_by", { length: 128 }).notNull(),
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull(),
       deletedAt: timestamp("deleted_at")
+      // For soft deletion
     }, (t) => ({
-      uniqActivePerProvider: uniqueIndex().on(t.provider, t.modelId).where(sql`${t.deletedAt} IS NULL`)
+      uniqActivePerProvider: uniqueIndex().on(t.provider, t.modelId)
     }));
     insertInvestigationSchema = createInsertSchema(investigations);
     insertAiSettingsSchema = createInsertSchema(aiSettings);
@@ -1058,13 +1085,13 @@ var init_schema = __esm({
 // server/db.ts
 var db_exports = {};
 __export(db_exports, {
-  db: () => db,
+  db: () => db2,
   pool: () => pool
 });
 import { Pool, neonConfig } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-serverless";
 import ws from "ws";
-var pool, db;
+var pool, db2;
 var init_db = __esm({
   "server/db.ts"() {
     "use strict";
@@ -1083,7 +1110,7 @@ var init_db = __esm({
       idleTimeoutMillis: 3e4,
       connectionTimeoutMillis: 1e4
     });
-    db = drizzle({ client: pool, schema: schema_exports });
+    db2 = drizzle({ client: pool, schema: schema_exports });
   }
 });
 
@@ -1301,7 +1328,7 @@ __export(storage_exports, {
   DatabaseInvestigationStorage: () => DatabaseInvestigationStorage,
   investigationStorage: () => investigationStorage
 });
-import { eq, like, and, or, sql as sql2 } from "drizzle-orm";
+import { eq as eq2, like, and, or, sql as sql2 } from "drizzle-orm";
 import { nanoid } from "nanoid";
 var DatabaseInvestigationStorage, investigationStorage;
 var init_storage = __esm({
@@ -1310,6 +1337,34 @@ var init_storage = __esm({
     init_schema();
     init_db();
     DatabaseInvestigationStorage = class {
+      // Dynamic admin sections from database configuration
+      async getAdminSections() {
+        try {
+          const result = await db2.execute(sql2`
+        SELECT config_value FROM app_config 
+        WHERE config_key = 'admin_sections' 
+        AND is_active = true
+      `);
+          if (result.rows.length > 0) {
+            const configValue = result.rows[0];
+            const sections = configValue.config_value;
+            if (typeof sections === "string") {
+              return sections.split(",").map((s) => s.trim()).filter(Boolean);
+            }
+            if (Array.isArray(sections)) {
+              return sections;
+            }
+          }
+        } catch (error) {
+          console.log("[ADMIN] Database sections query failed, using fallback");
+        }
+        const envSections = process.env.ADMIN_SECTIONS;
+        if (envSections) {
+          return envSections.split(",").map((s) => s.trim()).filter(Boolean);
+        }
+        console.log("[ADMIN] Using default admin sections - set ADMIN_SECTIONS env var to customize");
+        return ["ai", "evidence", "taxonomy", "workflow", "status", "debug"];
+      }
       async createInvestigation(data) {
         const investigationData = {
           investigationId: nanoid(),
@@ -1321,17 +1376,17 @@ var init_storage = __esm({
           auditTrail: [],
           ...data
         };
-        const [investigation] = await db.insert(investigations).values(investigationData).returning();
+        const [investigation] = await db2.insert(investigations).values(investigationData).returning();
         return investigation;
       }
       async getInvestigation(id) {
-        const [investigation] = await db.select().from(investigations).where(eq(investigations.id, id));
+        const [investigation] = await db2.select().from(investigations).where(eq2(investigations.id, id));
         return investigation;
       }
       async getInvestigationByInvestigationId(investigationId) {
         console.log("[RCA] Looking for investigation with investigationId:", investigationId);
         try {
-          const [investigation] = await db.select().from(investigations).where(eq(investigations.investigationId, investigationId));
+          const [investigation] = await db2.select().from(investigations).where(eq2(investigations.investigationId, investigationId));
           console.log("[RCA] Found investigation:", investigation ? `ID ${investigation.id}` : "undefined");
           return investigation;
         } catch (error) {
@@ -1344,11 +1399,11 @@ var init_storage = __esm({
           ...data,
           updatedAt: /* @__PURE__ */ new Date()
         };
-        const [investigation] = await db.update(investigations).set(updateData).where(eq(investigations.id, id)).returning();
+        const [investigation] = await db2.update(investigations).set(updateData).where(eq2(investigations.id, id)).returning();
         return investigation;
       }
       async getAllInvestigations() {
-        return await db.select().from(investigations).orderBy(investigations.createdAt);
+        return await db2.select().from(investigations).orderBy(investigations.createdAt);
       }
       async updateEvidence(id, evidenceData) {
         const investigation = await this.getInvestigation(id);
@@ -1384,7 +1439,7 @@ var init_storage = __esm({
       aiSettings = [];
       async getAllAiSettings() {
         try {
-          const settings = await db.select().from(aiSettings).orderBy(aiSettings.createdAt);
+          const settings = await db2.select().from(aiSettings).orderBy(aiSettings.createdAt);
           let AIService2 = null;
           try {
             const aiServiceModule = await Promise.resolve().then(() => (init_ai_service(), ai_service_exports));
@@ -1430,17 +1485,17 @@ var init_storage = __esm({
         try {
           const { AIService: AIService2 } = await Promise.resolve().then(() => (init_ai_service(), ai_service_exports));
           const encryptedKey = AIService2.encrypt(data.apiKey);
-          const existingProvider = await db.select().from(aiSettings).where(and(
-            eq(aiSettings.provider, data.provider),
-            eq(aiSettings.createdBy, data.createdBy || 1)
+          const existingProvider = await db2.select().from(aiSettings).where(and(
+            eq2(aiSettings.provider, data.provider),
+            eq2(aiSettings.createdBy, data.createdBy || 1)
           ));
           if (existingProvider.length > 0) {
             throw new Error(`Provider '${data.provider}' already exists. Please update the existing provider instead.`);
           }
           if (data.isActive) {
-            await db.update(aiSettings).set({ isActive: false }).where(eq(aiSettings.isActive, true));
+            await db2.update(aiSettings).set({ isActive: false }).where(eq2(aiSettings.isActive, true));
           }
-          const [newSetting] = await db.insert(aiSettings).values({
+          const [newSetting] = await db2.insert(aiSettings).values({
             provider: data.provider,
             model: data.model || data.provider,
             // Use provider as default model
@@ -1464,11 +1519,11 @@ var init_storage = __esm({
       }
       async updateAiSettingsTestStatus(id, testStatus, error) {
         try {
-          await db.update(aiSettings).set({
+          await db2.update(aiSettings).set({
             testStatus,
             lastTestedAt: /* @__PURE__ */ new Date(),
             ...error && { testError: error }
-          }).where(eq(aiSettings.id, id));
+          }).where(eq2(aiSettings.id, id));
           console.log(`[DatabaseInvestigationStorage] Updated test status for AI setting ${id}: ${testStatus}`);
         } catch (error2) {
           console.error("[DatabaseInvestigationStorage] Error updating test status:", error2);
@@ -1477,7 +1532,7 @@ var init_storage = __esm({
       }
       async deleteAiSettings(id) {
         try {
-          await db.delete(aiSettings).where(eq(aiSettings.id, id));
+          await db2.delete(aiSettings).where(eq2(aiSettings.id, id));
           console.log(`[DatabaseInvestigationStorage] Deleted AI setting ${id}`);
         } catch (error) {
           console.error("[DatabaseInvestigationStorage] Error deleting AI settings:", error);
@@ -1486,7 +1541,7 @@ var init_storage = __esm({
       }
       async getAiSettingsById(id) {
         try {
-          const [setting] = await db.select().from(aiSettings).where(eq(aiSettings.id, id));
+          const [setting] = await db2.select().from(aiSettings).where(eq2(aiSettings.id, id));
           if (!setting) return null;
           let AIService2 = null;
           let decryptedApiKey = null;
@@ -1522,10 +1577,10 @@ var init_storage = __esm({
       }
       async updateAiSettingsTestStatus(id, success) {
         try {
-          await db.update(aiSettings).set({
+          await db2.update(aiSettings).set({
             testStatus: success ? "success" : "failed",
             lastTestedAt: /* @__PURE__ */ new Date()
-          }).where(eq(aiSettings.id, id));
+          }).where(eq2(aiSettings.id, id));
         } catch (error) {
           console.error("[DatabaseInvestigationStorage] Error updating AI settings test status:", error);
           throw error;
@@ -1533,7 +1588,7 @@ var init_storage = __esm({
       }
       async getActiveAiSettings() {
         try {
-          const [activeSetting] = await db.select().from(aiSettings).where(eq(aiSettings.isActive, true)).orderBy(aiSettings.createdAt).limit(1);
+          const [activeSetting] = await db2.select().from(aiSettings).where(eq2(aiSettings.isActive, true)).orderBy(aiSettings.createdAt).limit(1);
           return activeSetting || null;
         } catch (error) {
           console.error("[DatabaseInvestigationStorage] Error getting active AI settings:", error);
@@ -1542,7 +1597,7 @@ var init_storage = __esm({
       }
       async deleteAiSettings(id) {
         try {
-          await db.delete(aiSettings).where(eq(aiSettings.id, id));
+          await db2.delete(aiSettings).where(eq2(aiSettings.id, id));
         } catch (error) {
           console.error("[DatabaseInvestigationStorage] Error deleting AI settings:", error);
           throw error;
@@ -1551,14 +1606,14 @@ var init_storage = __esm({
       // AI Settings Professional Conformance - Atomic activation with audit logging
       async activateAiProvider(providerId, actorId) {
         console.log(`[ACTIVATE AI PROVIDER] Starting activation for provider ${providerId} by ${actorId}`);
-        return await db.transaction(async (tx) => {
-          const [provider] = await tx.select().from(aiSettings).where(eq(aiSettings.id, providerId));
+        return await db2.transaction(async (tx) => {
+          const [provider] = await tx.select().from(aiSettings).where(eq2(aiSettings.id, providerId));
           if (!provider) {
             throw new Error(`AI provider not found: ${providerId}`);
           }
           await tx.update(aiSettings).set({ isActive: false });
           console.log(`[ACTIVATE AI PROVIDER] Deactivated all providers`);
-          await tx.update(aiSettings).set({ isActive: true }).where(eq(aiSettings.id, providerId));
+          await tx.update(aiSettings).set({ isActive: true }).where(eq2(aiSettings.id, providerId));
           console.log(`[ACTIVATE AI PROVIDER] Activated provider ${providerId}`);
           await tx.insert(auditLogs).values({
             actorId,
@@ -1576,8 +1631,8 @@ var init_storage = __esm({
       // AI Settings Professional Conformance - Key rotation with encryption and audit
       async rotateAiProviderKey(providerId, newApiKey, actorId) {
         console.log(`[ROTATE AI KEY] Starting key rotation for provider ${providerId} by ${actorId}`);
-        return await db.transaction(async (tx) => {
-          const [provider] = await tx.select().from(aiSettings).where(eq(aiSettings.id, providerId));
+        return await db2.transaction(async (tx) => {
+          const [provider] = await tx.select().from(aiSettings).where(eq2(aiSettings.id, providerId));
           if (!provider) {
             throw new Error(`AI provider not found: ${providerId}`);
           }
@@ -1588,7 +1643,7 @@ var init_storage = __esm({
             encryptedApiKey: encryptedKey,
             testStatus: "not_tested",
             lastTestedAt: null
-          }).where(eq(aiSettings.id, providerId));
+          }).where(eq2(aiSettings.id, providerId));
           await tx.insert(auditLogs).values({
             actorId,
             action: "ai_provider.rotate_key",
@@ -1605,7 +1660,7 @@ var init_storage = __esm({
       // Evidence Library operations
       async getAllEvidenceLibrary() {
         console.log("[DatabaseInvestigationStorage] NORMALIZED EVIDENCE LIBRARY: Retrieving all evidence with foreign key relationships");
-        const results = await db.select({
+        const results = await db2.select({
           id: evidenceLibrary.id,
           equipmentGroupId: evidenceLibrary.equipmentGroupId,
           equipmentTypeId: evidenceLibrary.equipmentTypeId,
@@ -1650,7 +1705,7 @@ var init_storage = __esm({
           lastUpdated: evidenceLibrary.lastUpdated,
           updatedBy: evidenceLibrary.updatedBy,
           createdAt: evidenceLibrary.createdAt
-        }).from(evidenceLibrary).leftJoin(equipmentGroups, eq(evidenceLibrary.equipmentGroupId, equipmentGroups.id)).leftJoin(equipmentTypes, eq(evidenceLibrary.equipmentTypeId, equipmentTypes.id)).leftJoin(equipmentSubtypes, eq(evidenceLibrary.equipmentSubtypeId, equipmentSubtypes.id)).leftJoin(riskRankings, eq(evidenceLibrary.riskRankingId, riskRankings.id)).orderBy(sql2`COALESCE(${equipmentGroups.name}, ${evidenceLibrary.equipmentGroup})`, sql2`COALESCE(${equipmentTypes.name}, ${evidenceLibrary.equipmentType})`);
+        }).from(evidenceLibrary).leftJoin(equipmentGroups, eq2(evidenceLibrary.equipmentGroupId, equipmentGroups.id)).leftJoin(equipmentTypes, eq2(evidenceLibrary.equipmentTypeId, equipmentTypes.id)).leftJoin(equipmentSubtypes, eq2(evidenceLibrary.equipmentSubtypeId, equipmentSubtypes.id)).leftJoin(riskRankings, eq2(evidenceLibrary.riskRankingId, riskRankings.id)).orderBy(sql2`COALESCE(${equipmentGroups.name}, ${evidenceLibrary.equipmentGroup})`, sql2`COALESCE(${equipmentTypes.name}, ${evidenceLibrary.equipmentType})`);
         console.log(`[DatabaseInvestigationStorage] NORMALIZED EVIDENCE LIBRARY: Retrieved ${results.length} evidence items with foreign key resolution`);
         const brokenRecords = results.filter(
           (record) => record.equipmentGroup === "DELETED" || record.equipmentType === "DELETED" || record.riskRanking === "UNKNOWN"
@@ -1664,17 +1719,17 @@ var init_storage = __esm({
         return results;
       }
       async getEvidenceLibraryById(id) {
-        const [item] = await db.select().from(evidenceLibrary).where(eq(evidenceLibrary.id, id));
+        const [item] = await db2.select().from(evidenceLibrary).where(eq2(evidenceLibrary.id, id));
         return item;
       }
       async getEvidenceLibraryByFailureCode(failureCode) {
         console.log(`[DatabaseInvestigationStorage] STEP 3: Getting evidence library item by failure code: ${failureCode}`);
-        const [item] = await db.select().from(evidenceLibrary).where(eq(evidenceLibrary.failureCode, failureCode)).limit(1);
+        const [item] = await db2.select().from(evidenceLibrary).where(eq2(evidenceLibrary.failureCode, failureCode)).limit(1);
         console.log(`[DatabaseInvestigationStorage] STEP 3: Found item by failure code:`, item ? "Yes" : "No");
         return item;
       }
       async createEvidenceLibrary(data) {
-        const [item] = await db.insert(evidenceLibrary).values({
+        const [item] = await db2.insert(evidenceLibrary).values({
           ...data,
           lastUpdated: /* @__PURE__ */ new Date()
         }).returning();
@@ -1682,7 +1737,7 @@ var init_storage = __esm({
       }
       async createEvidenceLibraryItem(data) {
         console.log(`[DatabaseInvestigationStorage] Creating evidence library item with equipment code: ${data.equipmentCode}`);
-        const [item] = await db.insert(evidenceLibrary).values({
+        const [item] = await db2.insert(evidenceLibrary).values({
           ...data,
           lastUpdated: /* @__PURE__ */ new Date()
         }).returning();
@@ -1692,10 +1747,10 @@ var init_storage = __esm({
       async updateEvidenceLibrary(id, data) {
         try {
           console.log(`[Storage UPDATE] Updating evidence library item ${id} with data:`, JSON.stringify(data, null, 2));
-          const [item] = await db.update(evidenceLibrary).set({
+          const [item] = await db2.update(evidenceLibrary).set({
             ...data,
             lastUpdated: /* @__PURE__ */ new Date()
-          }).where(eq(evidenceLibrary.id, id)).returning();
+          }).where(eq2(evidenceLibrary.id, id)).returning();
           console.log(`[Storage UPDATE] Successfully updated item ${id}:`, JSON.stringify(item, null, 2));
           return item;
         } catch (error) {
@@ -1706,10 +1761,10 @@ var init_storage = __esm({
       async updateEvidenceLibraryByFailureCode(failureCode, data) {
         try {
           console.log(`[Storage UPDATE] STEP 3: Updating evidence library item by failure code ${failureCode} with data:`, JSON.stringify(data, null, 2));
-          const [item] = await db.update(evidenceLibrary).set({
+          const [item] = await db2.update(evidenceLibrary).set({
             ...data,
             lastUpdated: /* @__PURE__ */ new Date()
-          }).where(eq(evidenceLibrary.failureCode, failureCode)).returning();
+          }).where(eq2(evidenceLibrary.failureCode, failureCode)).returning();
           if (!item) {
             throw new Error(`No evidence library item found with failure code: ${failureCode}`);
           }
@@ -1722,20 +1777,20 @@ var init_storage = __esm({
       }
       async deleteEvidenceLibrary(id) {
         console.log(`[DatabaseInvestigationStorage] PERMANENT DELETION: Completely purging evidence library item ${id} from database`);
-        await db.delete(evidenceLibrary).where(eq(evidenceLibrary.id, id));
+        await db2.delete(evidenceLibrary).where(eq2(evidenceLibrary.id, id));
         console.log(`[DatabaseInvestigationStorage] PERMANENT DELETION COMPLETE: Evidence library item ${id} permanently purged from all storage`);
       }
       async deleteEvidenceLibraryByFailureCode(failureCode) {
         console.log(`[DatabaseInvestigationStorage] STEP 3: PERMANENT DELETION by failure code: Completely purging evidence library item ${failureCode} from database`);
-        const result = await db.delete(evidenceLibrary).where(eq(evidenceLibrary.failureCode, failureCode));
+        const result = await db2.delete(evidenceLibrary).where(eq2(evidenceLibrary.failureCode, failureCode));
         console.log(`[DatabaseInvestigationStorage] STEP 3: PERMANENT DELETION COMPLETE: Evidence library item ${failureCode} permanently purged from all storage`);
       }
       async searchEvidenceLibrary(searchTerm) {
         const searchPattern = `%${searchTerm.toLowerCase()}%`;
         console.log("Searching evidence library for:", searchTerm, "with pattern:", searchPattern);
-        const results = await db.select().from(evidenceLibrary).where(
+        const results = await db2.select().from(evidenceLibrary).where(
           and(
-            eq(evidenceLibrary.isActive, true),
+            eq2(evidenceLibrary.isActive, true),
             or(
               sql2`LOWER(${evidenceLibrary.equipmentType}) LIKE ${searchPattern}`,
               sql2`LOWER(${evidenceLibrary.componentFailureMode}) LIKE ${searchPattern}`,
@@ -1763,9 +1818,9 @@ var init_storage = __esm({
             sql2`LOWER(${evidenceLibrary.aiOrInvestigatorQuestions}) LIKE ${pattern}`
           );
         });
-        const results = await db.select().from(evidenceLibrary).where(
+        const results = await db2.select().from(evidenceLibrary).where(
           and(
-            eq(evidenceLibrary.isActive, true),
+            eq2(evidenceLibrary.isActive, true),
             or(...symptomConditions)
           )
         ).orderBy(evidenceLibrary.diagnosticValue, evidenceLibrary.evidencePriority);
@@ -1786,9 +1841,9 @@ var init_storage = __esm({
       async recordEvidenceUsage(evidenceLibraryId) {
         try {
           console.log(`[Configurable Intelligence] Recording usage for Evidence Library item ${evidenceLibraryId}`);
-          await db.update(evidenceLibrary).set({
+          await db2.update(evidenceLibrary).set({
             lastUpdated: /* @__PURE__ */ new Date()
-          }).where(eq(evidenceLibrary.id, evidenceLibraryId));
+          }).where(eq2(evidenceLibrary.id, evidenceLibraryId));
         } catch (error) {
           console.error("[Configurable Intelligence] Error recording evidence usage:", error);
         }
@@ -1797,9 +1852,9 @@ var init_storage = __esm({
         try {
           console.log(`[Intelligence] Recording successful analysis for Evidence Library item ${evidenceLibraryId}`);
           console.log(`[Intelligence] Schema-driven operation - updating last updated only`);
-          await db.update(evidenceLibrary).set({
+          await db2.update(evidenceLibrary).set({
             lastUpdated: /* @__PURE__ */ new Date()
-          }).where(eq(evidenceLibrary.id, evidenceLibraryId));
+          }).where(eq2(evidenceLibrary.id, evidenceLibraryId));
           console.log(`[Intelligence] Successfully updated evidence item ${evidenceLibraryId} timestamp`);
         } catch (error) {
           console.error("[Intelligence] Error recording successful analysis:", error);
@@ -1808,9 +1863,9 @@ var init_storage = __esm({
       async updateEvidenceEffectiveness(evidenceLibraryId, effectivenessData) {
         try {
           console.log(`[Intelligence] Updating evidence effectiveness for item ${evidenceLibraryId}`);
-          await db.update(evidenceLibrary).set({
+          await db2.update(evidenceLibrary).set({
             lastUpdated: /* @__PURE__ */ new Date()
-          }).where(eq(evidenceLibrary.id, evidenceLibraryId));
+          }).where(eq2(evidenceLibrary.id, evidenceLibraryId));
         } catch (error) {
           console.error("[Intelligence] Error updating evidence effectiveness:", error);
         }
@@ -1818,12 +1873,12 @@ var init_storage = __esm({
       async getIntelligentEvidenceRecommendations(equipmentGroup, equipmentType, subtype) {
         try {
           console.log(`[Intelligence] Getting smart recommendations for ${equipmentGroup} \u2192 ${equipmentType} \u2192 ${subtype}`);
-          const results = await db.select().from(evidenceLibrary).where(
+          const results = await db2.select().from(evidenceLibrary).where(
             and(
-              eq(evidenceLibrary.isActive, true),
-              eq(evidenceLibrary.equipmentGroup, equipmentGroup),
-              eq(evidenceLibrary.equipmentType, equipmentType),
-              subtype ? eq(evidenceLibrary.subtype, subtype) : sql2`1=1`
+              eq2(evidenceLibrary.isActive, true),
+              eq2(evidenceLibrary.equipmentGroup, equipmentGroup),
+              eq2(evidenceLibrary.equipmentType, equipmentType),
+              subtype ? eq2(evidenceLibrary.subtype, subtype) : sql2`1=1`
             )
           ).orderBy(evidenceLibrary.id).limit(10);
           console.log(`[Intelligence] Found ${results.length} intelligent recommendations`);
@@ -1840,7 +1895,7 @@ var init_storage = __esm({
         }));
         try {
           console.log("[RCA] Clearing existing evidence library data...");
-          await db.delete(evidenceLibrary);
+          await db2.delete(evidenceLibrary);
           const equipmentCodes = items.map((item) => item.equipmentCode);
           const duplicates = equipmentCodes.filter((code, index2) => equipmentCodes.indexOf(code) !== index2);
           if (duplicates.length > 0) {
@@ -1852,7 +1907,7 @@ var init_storage = __esm({
           const results = [];
           for (let i = 0; i < items.length; i += batchSize) {
             const batch = items.slice(i, i + batchSize);
-            const batchResults = await db.insert(evidenceLibrary).values(batch).returning();
+            const batchResults = await db2.insert(evidenceLibrary).values(batch).returning();
             results.push(...batchResults);
             console.log(`[RCA] Imported batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(items.length / batchSize)}`);
           }
@@ -1877,13 +1932,13 @@ var init_storage = __esm({
             let riskRankingId = item.riskRankingId;
             if (item.equipmentGroup && !equipmentGroupId) {
               console.log(`[NORMALIZED] Resolving Equipment Group: ${item.equipmentGroup}`);
-              const [group] = await db.select().from(equipmentGroups).where(eq(equipmentGroups.name, item.equipmentGroup));
+              const [group] = await db2.select().from(equipmentGroups).where(eq2(equipmentGroups.name, item.equipmentGroup));
               if (group) {
                 equipmentGroupId = group.id;
                 console.log(`[NORMALIZED] Found Equipment Group ID: ${equipmentGroupId}`);
               } else {
                 console.log(`[NORMALIZED] Creating new Equipment Group: ${item.equipmentGroup}`);
-                const [newGroup] = await db.insert(equipmentGroups).values({
+                const [newGroup] = await db2.insert(equipmentGroups).values({
                   name: item.equipmentGroup,
                   isActive: true
                 }).returning();
@@ -1892,16 +1947,16 @@ var init_storage = __esm({
             }
             if (item.equipmentType && equipmentGroupId && !equipmentTypeId) {
               console.log(`[NORMALIZED] Resolving Equipment Type: ${item.equipmentType} for Group ID: ${equipmentGroupId}`);
-              const [type] = await db.select().from(equipmentTypes).where(and(
-                eq(equipmentTypes.name, item.equipmentType),
-                eq(equipmentTypes.equipmentGroupId, equipmentGroupId)
+              const [type] = await db2.select().from(equipmentTypes).where(and(
+                eq2(equipmentTypes.name, item.equipmentType),
+                eq2(equipmentTypes.equipmentGroupId, equipmentGroupId)
               ));
               if (type) {
                 equipmentTypeId = type.id;
                 console.log(`[NORMALIZED] Found Equipment Type ID: ${equipmentTypeId}`);
               } else {
                 console.log(`[NORMALIZED] Creating new Equipment Type: ${item.equipmentType}`);
-                const [newType] = await db.insert(equipmentTypes).values({
+                const [newType] = await db2.insert(equipmentTypes).values({
                   name: item.equipmentType,
                   equipmentGroupId,
                   isActive: true
@@ -1911,13 +1966,13 @@ var init_storage = __esm({
             }
             if (item.riskRanking && !riskRankingId) {
               console.log(`[NORMALIZED] Resolving Risk Ranking: ${item.riskRanking}`);
-              const [ranking] = await db.select().from(riskRankings).where(eq(riskRankings.label, item.riskRanking));
+              const [ranking] = await db2.select().from(riskRankings).where(eq2(riskRankings.label, item.riskRanking));
               if (ranking) {
                 riskRankingId = ranking.id;
                 console.log(`[NORMALIZED] Found Risk Ranking ID: ${riskRankingId}`);
               } else {
                 console.log(`[NORMALIZED] Creating new Risk Ranking: ${item.riskRanking}`);
-                const [newRanking] = await db.insert(riskRankings).values({
+                const [newRanking] = await db2.insert(riskRankings).values({
                   label: item.riskRanking,
                   isActive: true
                 }).returning();
@@ -1931,17 +1986,17 @@ var init_storage = __esm({
               riskRankingId,
               lastUpdated: /* @__PURE__ */ new Date()
             };
-            const [existing] = await db.select().from(evidenceLibrary).where(eq(evidenceLibrary.failureCode, item.failureCode)).limit(1);
+            const [existing] = await db2.select().from(evidenceLibrary).where(eq2(evidenceLibrary.failureCode, item.failureCode)).limit(1);
             if (existing) {
               console.log(`[NORMALIZED] Updating existing record with Failure Code: ${item.failureCode}`);
-              const [updated] = await db.update(evidenceLibrary).set({
+              const [updated] = await db2.update(evidenceLibrary).set({
                 ...normalizedItem,
                 updatedBy: item.updatedBy || "normalized-import"
-              }).where(eq(evidenceLibrary.failureCode, item.failureCode)).returning();
+              }).where(eq2(evidenceLibrary.failureCode, item.failureCode)).returning();
               results.push(updated);
             } else {
               console.log(`[NORMALIZED] Inserting new record with Failure Code: ${item.failureCode}`);
-              const [inserted] = await db.insert(evidenceLibrary).values(normalizedItem).returning();
+              const [inserted] = await db2.insert(evidenceLibrary).values(normalizedItem).returning();
               results.push(inserted);
             }
           }
@@ -2103,17 +2158,17 @@ var init_storage = __esm({
       }
       // Equipment Groups operations
       async getAllEquipmentGroups() {
-        return await db.select().from(equipmentGroups).orderBy(equipmentGroups.name);
+        return await db2.select().from(equipmentGroups).orderBy(equipmentGroups.name);
       }
       async getActiveEquipmentGroups() {
-        return await db.select().from(equipmentGroups).where(eq(equipmentGroups.isActive, true)).orderBy(equipmentGroups.name);
+        return await db2.select().from(equipmentGroups).where(eq2(equipmentGroups.isActive, true)).orderBy(equipmentGroups.name);
       }
       // NEW: ID-based equipment operations for normalized API
       async getEquipmentGroups(options) {
         console.log(`[EQUIPMENT-STORAGE] Getting equipment groups, activeOnly=${options?.activeOnly}`);
-        let query = db.select().from(equipmentGroups);
+        let query = db2.select().from(equipmentGroups);
         if (options?.activeOnly) {
-          query = query.where(eq(equipmentGroups.isActive, true));
+          query = query.where(eq2(equipmentGroups.isActive, true));
         }
         const results = await query.orderBy(equipmentGroups.name);
         console.log(`[EQUIPMENT-STORAGE] Retrieved ${results.length} equipment groups`);
@@ -2121,11 +2176,11 @@ var init_storage = __esm({
       }
       async getEquipmentTypes(options) {
         console.log(`[EQUIPMENT-STORAGE] Getting equipment types for groupId=${options.groupId}, activeOnly=${options.activeOnly}`);
-        let query = db.select().from(equipmentTypes).where(eq(equipmentTypes.equipmentGroupId, options.groupId));
+        let query = db2.select().from(equipmentTypes).where(eq2(equipmentTypes.equipmentGroupId, options.groupId));
         if (options.activeOnly) {
           query = query.where(and(
-            eq(equipmentTypes.equipmentGroupId, options.groupId),
-            eq(equipmentTypes.isActive, true)
+            eq2(equipmentTypes.equipmentGroupId, options.groupId),
+            eq2(equipmentTypes.isActive, true)
           ));
         }
         const results = await query.orderBy(equipmentTypes.name);
@@ -2134,11 +2189,11 @@ var init_storage = __esm({
       }
       async getEquipmentSubtypes(options) {
         console.log(`[EQUIPMENT-STORAGE] Getting equipment subtypes for typeId=${options.typeId}, activeOnly=${options.activeOnly}`);
-        let query = db.select().from(equipmentSubtypes).where(eq(equipmentSubtypes.equipmentTypeId, options.typeId));
+        let query = db2.select().from(equipmentSubtypes).where(eq2(equipmentSubtypes.equipmentTypeId, options.typeId));
         if (options.activeOnly) {
           query = query.where(and(
-            eq(equipmentSubtypes.equipmentTypeId, options.typeId),
-            eq(equipmentSubtypes.isActive, true)
+            eq2(equipmentSubtypes.equipmentTypeId, options.typeId),
+            eq2(equipmentSubtypes.isActive, true)
           ));
         }
         const results = await query.orderBy(equipmentSubtypes.name);
@@ -2146,32 +2201,32 @@ var init_storage = __esm({
         return results;
       }
       async createEquipmentGroup(data) {
-        const [result] = await db.insert(equipmentGroups).values({
+        const [result] = await db2.insert(equipmentGroups).values({
           ...data,
           updatedAt: /* @__PURE__ */ new Date()
         }).returning();
         return result;
       }
       async updateEquipmentGroup(id, data) {
-        const [result] = await db.update(equipmentGroups).set({
+        const [result] = await db2.update(equipmentGroups).set({
           ...data,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq(equipmentGroups.id, id)).returning();
+        }).where(eq2(equipmentGroups.id, id)).returning();
         return result;
       }
       async deleteEquipmentGroup(id) {
         console.log(`[DatabaseInvestigationStorage] PERMANENT DELETION: Starting complete removal of equipment group ${id}`);
         try {
-          const equipmentGroup = await db.select().from(equipmentGroups).where(eq(equipmentGroups.id, id));
+          const equipmentGroup = await db2.select().from(equipmentGroups).where(eq2(equipmentGroups.id, id));
           const groupName = equipmentGroup[0]?.name || "Unknown";
           console.log(`[DatabaseInvestigationStorage] Target for deletion: "${groupName}" (ID: ${id})`);
-          await db.delete(equipmentSubtypes).where(
+          await db2.delete(equipmentSubtypes).where(
             sql2`equipment_type_id IN (SELECT id FROM equipment_types WHERE equipment_group_id = ${id})`
           );
           console.log(`[DatabaseInvestigationStorage] CASCADE DELETE: Removed all equipment subtypes for group ${id}`);
-          const deletedTypes = await db.delete(equipmentTypes).where(eq(equipmentTypes.equipmentGroupId, id)).returning({ id: equipmentTypes.id, name: equipmentTypes.name });
+          const deletedTypes = await db2.delete(equipmentTypes).where(eq2(equipmentTypes.equipmentGroupId, id)).returning({ id: equipmentTypes.id, name: equipmentTypes.name });
           console.log(`[DatabaseInvestigationStorage] CASCADE DELETE: Removed ${deletedTypes.length} equipment types`);
-          const deletedGroups = await db.delete(equipmentGroups).where(eq(equipmentGroups.id, id)).returning({ id: equipmentGroups.id, name: equipmentGroups.name });
+          const deletedGroups = await db2.delete(equipmentGroups).where(eq2(equipmentGroups.id, id)).returning({ id: equipmentGroups.id, name: equipmentGroups.name });
           if (deletedGroups.length === 0) {
             throw new Error(`Equipment group with ID ${id} not found`);
           }
@@ -2190,22 +2245,22 @@ var init_storage = __esm({
       // NORMALIZED EQUIPMENT TYPES CRUD OPERATIONS (Universal Protocol Standard)
       async createEquipmentType(data) {
         console.log(`[DatabaseInvestigationStorage] Creating equipment type: ${data.name} for group ID: ${data.equipmentGroupId}`);
-        const [equipmentType] = await db.insert(equipmentTypes).values(data).returning();
+        const [equipmentType] = await db2.insert(equipmentTypes).values(data).returning();
         console.log(`[DatabaseInvestigationStorage] Created equipment type with ID: ${equipmentType.id}`);
         return equipmentType;
       }
       async getEquipmentTypesByGroup(equipmentGroupId) {
         console.log(`[DatabaseInvestigationStorage] Retrieving equipment types for group ID: ${equipmentGroupId}`);
-        const results = await db.select().from(equipmentTypes).where(and(
-          eq(equipmentTypes.equipmentGroupId, equipmentGroupId),
-          eq(equipmentTypes.isActive, true)
+        const results = await db2.select().from(equipmentTypes).where(and(
+          eq2(equipmentTypes.equipmentGroupId, equipmentGroupId),
+          eq2(equipmentTypes.isActive, true)
         )).orderBy(equipmentTypes.name);
         console.log(`[DatabaseInvestigationStorage] Retrieved ${results.length} equipment types`);
         return results;
       }
       async getAllEquipmentTypes() {
         console.log("[DatabaseInvestigationStorage] Retrieving all equipment types with equipment group relationships");
-        const results = await db.select({
+        const results = await db2.select({
           id: equipmentTypes.id,
           name: equipmentTypes.name,
           equipmentGroupId: equipmentTypes.equipmentGroupId,
@@ -2213,20 +2268,20 @@ var init_storage = __esm({
           createdAt: equipmentTypes.createdAt,
           updatedAt: equipmentTypes.updatedAt,
           equipmentGroupName: equipmentGroups.name
-        }).from(equipmentTypes).leftJoin(equipmentGroups, eq(equipmentTypes.equipmentGroupId, equipmentGroups.id)).where(eq(equipmentTypes.isActive, true)).orderBy(equipmentTypes.name);
+        }).from(equipmentTypes).leftJoin(equipmentGroups, eq2(equipmentTypes.equipmentGroupId, equipmentGroups.id)).where(eq2(equipmentTypes.isActive, true)).orderBy(equipmentTypes.name);
         console.log(`[DatabaseInvestigationStorage] Retrieved ${results.length} equipment types with relationships`);
         return results;
       }
       async getActiveEquipmentTypes() {
         console.log("[DatabaseInvestigationStorage] Retrieving active equipment types");
-        const results = await db.select().from(equipmentTypes).where(eq(equipmentTypes.isActive, true)).orderBy(equipmentTypes.name);
+        const results = await db2.select().from(equipmentTypes).where(eq2(equipmentTypes.isActive, true)).orderBy(equipmentTypes.name);
         console.log(`[DatabaseInvestigationStorage] Retrieved ${results.length} active equipment types`);
         return results;
       }
       // Enhanced methods with joins for taxonomy management - NO HARDCODING
       async getAllEquipmentTypesWithGroups() {
         console.log("[DatabaseInvestigationStorage] Retrieving equipment types with group hierarchy");
-        const result = await db.select({
+        const result = await db2.select({
           id: equipmentTypes.id,
           name: equipmentTypes.name,
           groupId: equipmentTypes.equipmentGroupId,
@@ -2241,7 +2296,7 @@ var init_storage = __esm({
       }
       async getAllEquipmentSubtypesWithHierarchy() {
         console.log("[DatabaseInvestigationStorage] Retrieving equipment subtypes with full hierarchy");
-        const result = await db.select({
+        const result = await db2.select({
           id: equipmentSubtypes.id,
           name: equipmentSubtypes.name,
           typeId: equipmentSubtypes.equipmentTypeId,
@@ -2259,50 +2314,50 @@ var init_storage = __esm({
       }
       async assignGroupToType(typeId, groupId) {
         console.log(`[DatabaseInvestigationStorage] Assigning group ${groupId} to type ${typeId}`);
-        const [group] = await db.select().from(equipmentGroups).where(eq(equipmentGroups.id, groupId));
+        const [group] = await db2.select().from(equipmentGroups).where(eq2(equipmentGroups.id, groupId));
         if (!group) throw new Error("Group not found");
-        const [result] = await db.update(equipmentTypes).set({
+        const [result] = await db2.update(equipmentTypes).set({
           equipmentGroupId: groupId,
           groupName: group.name,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq(equipmentTypes.id, typeId)).returning();
+        }).where(eq2(equipmentTypes.id, typeId)).returning();
         return result;
       }
       async assignTypeToSubtype(subtypeId, typeId) {
         console.log(`[DatabaseInvestigationStorage] Assigning type ${typeId} to subtype ${subtypeId}`);
-        const [type] = await db.select({
+        const [type] = await db2.select({
           typeName: equipmentTypes.name,
           groupId: equipmentTypes.equipmentGroupId,
           groupName: equipmentTypes.groupName
-        }).from(equipmentTypes).where(eq(equipmentTypes.id, typeId));
+        }).from(equipmentTypes).where(eq2(equipmentTypes.id, typeId));
         if (!type) throw new Error("Type not found");
-        const [result] = await db.update(equipmentSubtypes).set({
+        const [result] = await db2.update(equipmentSubtypes).set({
           equipmentTypeId: typeId,
           typeName: type.typeName,
           groupName: type.groupName,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq(equipmentSubtypes.id, subtypeId)).returning();
+        }).where(eq2(equipmentSubtypes.id, subtypeId)).returning();
         return result;
       }
       // NORMALIZED EQUIPMENT SUBTYPES CRUD OPERATIONS (Universal Protocol Standard)  
       async createEquipmentSubtype(data) {
         console.log(`[DatabaseInvestigationStorage] Creating equipment subtype: ${data.name} for type ID: ${data.equipmentTypeId}`);
-        const [equipmentSubtype] = await db.insert(equipmentSubtypes).values(data).returning();
+        const [equipmentSubtype] = await db2.insert(equipmentSubtypes).values(data).returning();
         console.log(`[DatabaseInvestigationStorage] Created equipment subtype with ID: ${equipmentSubtype.id}`);
         return equipmentSubtype;
       }
       async getEquipmentSubtypesByType(equipmentTypeId) {
         console.log(`[DatabaseInvestigationStorage] Retrieving equipment subtypes for type ID: ${equipmentTypeId}`);
-        const results = await db.select().from(equipmentSubtypes).where(and(
-          eq(equipmentSubtypes.equipmentTypeId, equipmentTypeId),
-          eq(equipmentSubtypes.isActive, true)
+        const results = await db2.select().from(equipmentSubtypes).where(and(
+          eq2(equipmentSubtypes.equipmentTypeId, equipmentTypeId),
+          eq2(equipmentSubtypes.isActive, true)
         )).orderBy(equipmentSubtypes.name);
         console.log(`[DatabaseInvestigationStorage] Retrieved ${results.length} equipment subtypes`);
         return results;
       }
       async getAllEquipmentSubtypes() {
         console.log("[DatabaseInvestigationStorage] Retrieving all equipment subtypes with relationships");
-        const results = await db.select({
+        const results = await db2.select({
           id: equipmentSubtypes.id,
           name: equipmentSubtypes.name,
           equipmentTypeId: equipmentSubtypes.equipmentTypeId,
@@ -2312,56 +2367,56 @@ var init_storage = __esm({
           equipmentTypeName: equipmentTypes.name,
           equipmentGroupName: equipmentGroups.name,
           equipmentGroupId: equipmentTypes.equipmentGroupId
-        }).from(equipmentSubtypes).innerJoin(equipmentTypes, eq(equipmentSubtypes.equipmentTypeId, equipmentTypes.id)).innerJoin(equipmentGroups, eq(equipmentTypes.equipmentGroupId, equipmentGroups.id)).where(eq(equipmentSubtypes.isActive, true)).orderBy(equipmentSubtypes.name);
+        }).from(equipmentSubtypes).innerJoin(equipmentTypes, eq2(equipmentSubtypes.equipmentTypeId, equipmentTypes.id)).innerJoin(equipmentGroups, eq2(equipmentTypes.equipmentGroupId, equipmentGroups.id)).where(eq2(equipmentSubtypes.isActive, true)).orderBy(equipmentSubtypes.name);
         console.log(`[DatabaseInvestigationStorage] Retrieved ${results.length} equipment subtypes with relationships`);
         return results;
       }
       async getActiveEquipmentSubtypes() {
         console.log("[DatabaseInvestigationStorage] Retrieving active equipment subtypes");
-        const results = await db.select().from(equipmentSubtypes).where(eq(equipmentSubtypes.isActive, true)).orderBy(equipmentSubtypes.name);
+        const results = await db2.select().from(equipmentSubtypes).where(eq2(equipmentSubtypes.isActive, true)).orderBy(equipmentSubtypes.name);
         console.log(`[DatabaseInvestigationStorage] Retrieved ${results.length} active equipment subtypes`);
         return results;
       }
       async toggleEquipmentGroupStatus(id) {
-        const [current] = await db.select().from(equipmentGroups).where(eq(equipmentGroups.id, id));
+        const [current] = await db2.select().from(equipmentGroups).where(eq2(equipmentGroups.id, id));
         if (!current) throw new Error("Equipment group not found");
-        const [result] = await db.update(equipmentGroups).set({
+        const [result] = await db2.update(equipmentGroups).set({
           isActive: !current.isActive,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq(equipmentGroups.id, id)).returning();
+        }).where(eq2(equipmentGroups.id, id)).returning();
         return result;
       }
       // Risk Rankings operations
       async getAllRiskRankings() {
-        return await db.select().from(riskRankings).orderBy(riskRankings.label);
+        return await db2.select().from(riskRankings).orderBy(riskRankings.label);
       }
       async getActiveRiskRankings() {
-        return await db.select().from(riskRankings).where(eq(riskRankings.isActive, true)).orderBy(riskRankings.label);
+        return await db2.select().from(riskRankings).where(eq2(riskRankings.isActive, true)).orderBy(riskRankings.label);
       }
       async createRiskRanking(data) {
-        const [result] = await db.insert(riskRankings).values({
+        const [result] = await db2.insert(riskRankings).values({
           ...data,
           updatedAt: /* @__PURE__ */ new Date()
         }).returning();
         return result;
       }
       async updateRiskRanking(id, data) {
-        const [result] = await db.update(riskRankings).set({
+        const [result] = await db2.update(riskRankings).set({
           ...data,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq(riskRankings.id, id)).returning();
+        }).where(eq2(riskRankings.id, id)).returning();
         return result;
       }
       async deleteRiskRanking(id) {
-        await db.delete(riskRankings).where(eq(riskRankings.id, id));
+        await db2.delete(riskRankings).where(eq2(riskRankings.id, id));
       }
       async toggleRiskRankingStatus(id) {
-        const [current] = await db.select().from(riskRankings).where(eq(riskRankings.id, id));
+        const [current] = await db2.select().from(riskRankings).where(eq2(riskRankings.id, id));
         if (!current) throw new Error("Risk ranking not found");
-        const [result] = await db.update(riskRankings).set({
+        const [result] = await db2.update(riskRankings).set({
           isActive: !current.isActive,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq(riskRankings.id, id)).returning();
+        }).where(eq2(riskRankings.id, id)).returning();
         return result;
       }
       // Incident operations - New RCA workflow
@@ -2376,7 +2431,7 @@ var init_storage = __esm({
               incidentDateTime = new Date(data.incidentDateTime);
             }
           }
-          const [incident] = await db.insert(incidents).values({
+          const [incident] = await db2.insert(incidents).values({
             title: data.title || "",
             description: data.description || "",
             equipmentGroup: data.equipmentGroup || "",
@@ -2402,7 +2457,7 @@ var init_storage = __esm({
       }
       async getIncident(id) {
         try {
-          const [incident] = await db.select().from(incidents).where(eq(incidents.id, id));
+          const [incident] = await db2.select().from(incidents).where(eq2(incidents.id, id));
           return incident;
         } catch (error) {
           console.error("[DatabaseInvestigationStorage] Error getting incident:", error);
@@ -2411,10 +2466,10 @@ var init_storage = __esm({
       }
       async updateIncident(id, data) {
         try {
-          const [incident] = await db.update(incidents).set({
+          const [incident] = await db2.update(incidents).set({
             ...data,
             updatedAt: /* @__PURE__ */ new Date()
-          }).where(eq(incidents.id, id)).returning();
+          }).where(eq2(incidents.id, id)).returning();
           console.log("[DatabaseInvestigationStorage] Updated incident:", incident.id);
           return incident;
         } catch (error) {
@@ -2424,7 +2479,7 @@ var init_storage = __esm({
       }
       async getAllIncidents() {
         try {
-          return await db.select().from(incidents).orderBy(incidents.createdAt);
+          return await db2.select().from(incidents).orderBy(incidents.createdAt);
         } catch (error) {
           console.error("[DatabaseInvestigationStorage] Error getting all incidents:", error);
           throw error;
@@ -2432,16 +2487,16 @@ var init_storage = __esm({
       }
       // Cascading dropdown operations - Implementation
       async getCascadingEquipmentGroups() {
-        const results = await db.selectDistinct({ equipmentGroup: evidenceLibrary.equipmentGroup }).from(evidenceLibrary).orderBy(evidenceLibrary.equipmentGroup);
+        const results = await db2.selectDistinct({ equipmentGroup: evidenceLibrary.equipmentGroup }).from(evidenceLibrary).orderBy(evidenceLibrary.equipmentGroup);
         return results.map((r) => r.equipmentGroup);
       }
       async getCascadingEquipmentTypes(groupName) {
-        const results = await db.selectDistinct({ equipmentType: evidenceLibrary.equipmentType }).from(evidenceLibrary).where(eq(evidenceLibrary.equipmentGroup, groupName)).orderBy(evidenceLibrary.equipmentType);
+        const results = await db2.selectDistinct({ equipmentType: evidenceLibrary.equipmentType }).from(evidenceLibrary).where(eq2(evidenceLibrary.equipmentGroup, groupName)).orderBy(evidenceLibrary.equipmentType);
         return results.map((r) => r.equipmentType);
       }
       async getCascadingEquipmentSubtypes(groupName, typeName) {
         try {
-          const results = await db.execute(
+          const results = await db2.execute(
             sql2`SELECT DISTINCT subtype FROM evidence_library 
             WHERE equipment_group = ${groupName} 
             AND equipment_type = ${typeName}
@@ -2460,12 +2515,12 @@ var init_storage = __esm({
         try {
           console.log(`[Storage] UNIVERSAL PROTOCOL: Searching for EXACT equipment match: ${equipmentGroup} -> ${equipmentType} -> ${equipmentSubtype}`);
           const baseConditions = and(
-            eq(evidenceLibrary.isActive, true),
-            eq(evidenceLibrary.equipmentGroup, equipmentGroup),
-            eq(evidenceLibrary.equipmentType, equipmentType)
+            eq2(evidenceLibrary.isActive, true),
+            eq2(evidenceLibrary.equipmentGroup, equipmentGroup),
+            eq2(evidenceLibrary.equipmentType, equipmentType)
           );
-          const finalConditions = equipmentSubtype && equipmentSubtype.trim() !== "" ? and(baseConditions, eq(evidenceLibrary.subtype, equipmentSubtype)) : baseConditions;
-          const results = await db.select().from(evidenceLibrary).where(finalConditions).orderBy(evidenceLibrary.componentFailureMode);
+          const finalConditions = equipmentSubtype && equipmentSubtype.trim() !== "" ? and(baseConditions, eq2(evidenceLibrary.subtype, equipmentSubtype)) : baseConditions;
+          const results = await db2.select().from(evidenceLibrary).where(finalConditions).orderBy(evidenceLibrary.componentFailureMode);
           console.log(`[Storage] UNIVERSAL PROTOCOL: Found ${results.length} exact equipment matches`);
           return results;
         } catch (error) {
@@ -2476,7 +2531,7 @@ var init_storage = __esm({
       // Equipment Taxonomy operations for Evidence Analysis Engine  
       async getAllEquipmentTypes() {
         try {
-          const types = await db.select().from(equipmentTypes).orderBy(equipmentTypes.name);
+          const types = await db2.select().from(equipmentTypes).orderBy(equipmentTypes.name);
           return types;
         } catch (error) {
           console.error("[DatabaseInvestigationStorage] Error getting all equipment types:", error);
@@ -2487,7 +2542,7 @@ var init_storage = __esm({
       async getAllEquipmentTypesWithGroups() {
         try {
           console.log("[DatabaseInvestigationStorage] Retrieving equipment types with group hierarchy");
-          const typesWithGroups = await db.select({
+          const typesWithGroups = await db2.select({
             id: equipmentTypes.id,
             name: equipmentTypes.name,
             equipmentGroupId: equipmentTypes.equipmentGroupId,
@@ -2497,7 +2552,7 @@ var init_storage = __esm({
             updatedAt: equipmentTypes.updatedAt,
             groupId: equipmentTypes.equipmentGroupId
             // Alias for consistency
-          }).from(equipmentTypes).leftJoin(equipmentGroups, eq(equipmentTypes.equipmentGroupId, equipmentGroups.id)).orderBy(equipmentTypes.name);
+          }).from(equipmentTypes).leftJoin(equipmentGroups, eq2(equipmentTypes.equipmentGroupId, equipmentGroups.id)).orderBy(equipmentTypes.name);
           return typesWithGroups;
         } catch (error) {
           console.error("[DatabaseInvestigationStorage] Error getting equipment types with groups:", error);
@@ -2507,7 +2562,7 @@ var init_storage = __esm({
       async getAllEquipmentSubtypesWithGroups() {
         try {
           console.log("[DatabaseInvestigationStorage] Retrieving equipment subtypes with complete hierarchy");
-          const subtypesWithHierarchy = await db.select({
+          const subtypesWithHierarchy = await db2.select({
             id: equipmentSubtypes.id,
             name: equipmentSubtypes.name,
             equipmentTypeId: equipmentSubtypes.equipmentTypeId,
@@ -2520,7 +2575,7 @@ var init_storage = __esm({
             // Alias for consistency
             groupId: equipmentTypes.equipmentGroupId
             // From joined type
-          }).from(equipmentSubtypes).leftJoin(equipmentTypes, eq(equipmentSubtypes.equipmentTypeId, equipmentTypes.id)).leftJoin(equipmentGroups, eq(equipmentTypes.equipmentGroupId, equipmentGroups.id)).orderBy(equipmentSubtypes.name);
+          }).from(equipmentSubtypes).leftJoin(equipmentTypes, eq2(equipmentSubtypes.equipmentTypeId, equipmentTypes.id)).leftJoin(equipmentGroups, eq2(equipmentTypes.equipmentGroupId, equipmentGroups.id)).orderBy(equipmentSubtypes.name);
           return subtypesWithHierarchy;
         } catch (error) {
           console.error("[DatabaseInvestigationStorage] Error getting equipment subtypes with hierarchy:", error);
@@ -2531,10 +2586,10 @@ var init_storage = __esm({
       async assignGroupToType(typeId, groupId) {
         try {
           console.log(`[DatabaseInvestigationStorage] Assigning group ${groupId} to type ${typeId}`);
-          const [updatedType] = await db.update(equipmentTypes).set({
+          const [updatedType] = await db2.update(equipmentTypes).set({
             equipmentGroupId: groupId,
             updatedAt: /* @__PURE__ */ new Date()
-          }).where(eq(equipmentTypes.id, typeId)).returning();
+          }).where(eq2(equipmentTypes.id, typeId)).returning();
           return updatedType;
         } catch (error) {
           console.error("[DatabaseInvestigationStorage] Error assigning group to type:", error);
@@ -2544,10 +2599,10 @@ var init_storage = __esm({
       async assignTypeToSubtype(subtypeId, typeId) {
         try {
           console.log(`[DatabaseInvestigationStorage] Assigning type ${typeId} to subtype ${subtypeId}`);
-          const [updatedSubtype] = await db.update(equipmentSubtypes).set({
+          const [updatedSubtype] = await db2.update(equipmentSubtypes).set({
             equipmentTypeId: typeId,
             updatedAt: /* @__PURE__ */ new Date()
-          }).where(eq(equipmentSubtypes.id, subtypeId)).returning();
+          }).where(eq2(equipmentSubtypes.id, subtypeId)).returning();
           return updatedSubtype;
         } catch (error) {
           console.error("[DatabaseInvestigationStorage] Error assigning type to subtype:", error);
@@ -2556,7 +2611,7 @@ var init_storage = __esm({
       }
       async getAllEquipmentSubtypes() {
         try {
-          const subtypes = await db.select().from(equipmentSubtypes).orderBy(equipmentSubtypes.name);
+          const subtypes = await db2.select().from(equipmentSubtypes).orderBy(equipmentSubtypes.name);
           return subtypes;
         } catch (error) {
           console.error("[DatabaseInvestigationStorage] Error getting all equipment subtypes:", error);
@@ -2565,7 +2620,7 @@ var init_storage = __esm({
       }
       async getAllRiskRankings() {
         try {
-          const risks = await db.select().from(riskRankings).orderBy(riskRankings.label);
+          const risks = await db2.select().from(riskRankings).orderBy(riskRankings.label);
           return risks;
         } catch (error) {
           console.error("[DatabaseInvestigationStorage] Error getting all risk rankings:", error);
@@ -2701,7 +2756,7 @@ var init_storage = __esm({
       // Fault Reference Library operations (Admin Only)
       async getAllFaultReferenceLibrary() {
         try {
-          return await db.select().from(faultReferenceLibrary);
+          return await db2.select().from(faultReferenceLibrary);
         } catch (error) {
           console.error("Error getting all fault reference library:", error);
           throw new Error("Failed to retrieve fault reference library");
@@ -2709,7 +2764,7 @@ var init_storage = __esm({
       }
       async getFaultReferenceLibraryById(id) {
         try {
-          const [result] = await db.select().from(faultReferenceLibrary).where(eq(faultReferenceLibrary.id, id));
+          const [result] = await db2.select().from(faultReferenceLibrary).where(eq2(faultReferenceLibrary.id, id));
           return result;
         } catch (error) {
           console.error("Error getting fault reference library by id:", error);
@@ -2718,7 +2773,7 @@ var init_storage = __esm({
       }
       async createFaultReferenceLibrary(data) {
         try {
-          const [result] = await db.insert(faultReferenceLibrary).values({
+          const [result] = await db2.insert(faultReferenceLibrary).values({
             ...data,
             updatedAt: /* @__PURE__ */ new Date()
           }).returning();
@@ -2730,10 +2785,10 @@ var init_storage = __esm({
       }
       async updateFaultReferenceLibrary(id, data) {
         try {
-          const [result] = await db.update(faultReferenceLibrary).set({
+          const [result] = await db2.update(faultReferenceLibrary).set({
             ...data,
             updatedAt: /* @__PURE__ */ new Date()
-          }).where(eq(faultReferenceLibrary.id, id)).returning();
+          }).where(eq2(faultReferenceLibrary.id, id)).returning();
           if (!result) {
             throw new Error("Fault reference library entry not found");
           }
@@ -2745,7 +2800,7 @@ var init_storage = __esm({
       }
       async deleteFaultReferenceLibrary(id) {
         try {
-          await db.delete(faultReferenceLibrary).where(eq(faultReferenceLibrary.id, id));
+          await db2.delete(faultReferenceLibrary).where(eq2(faultReferenceLibrary.id, id));
         } catch (error) {
           console.error("Error deleting fault reference library:", error);
           throw new Error("Failed to delete fault reference library entry");
@@ -2753,7 +2808,7 @@ var init_storage = __esm({
       }
       async searchFaultReferenceLibrary(searchTerm, evidenceType) {
         try {
-          let query = db.select().from(faultReferenceLibrary);
+          let query = db2.select().from(faultReferenceLibrary);
           const conditions = [];
           if (searchTerm) {
             conditions.push(
@@ -2766,7 +2821,7 @@ var init_storage = __esm({
             );
           }
           if (evidenceType) {
-            conditions.push(eq(faultReferenceLibrary.evidenceType, evidenceType));
+            conditions.push(eq2(faultReferenceLibrary.evidenceType, evidenceType));
           }
           if (conditions.length > 0) {
             query = query.where(and(...conditions));
@@ -2780,7 +2835,7 @@ var init_storage = __esm({
       async bulkImportFaultReferenceLibrary(data) {
         try {
           if (data.length === 0) return [];
-          const results = await db.insert(faultReferenceLibrary).values(
+          const results = await db2.insert(faultReferenceLibrary).values(
             data.map((item) => ({
               ...item,
               updatedAt: /* @__PURE__ */ new Date()
@@ -2795,7 +2850,7 @@ var init_storage = __esm({
       // User operations (for admin check) - Replit Auth compatibility
       async getUser(id) {
         try {
-          const [user] = await db.select().from(users).where(eq(users.id, id));
+          const [user] = await db2.select().from(users).where(eq2(users.id, id));
           return user;
         } catch (error) {
           console.error("Error getting user:", error);
@@ -2804,7 +2859,7 @@ var init_storage = __esm({
       }
       async upsertUser(userData) {
         try {
-          const [user] = await db.insert(users).values(userData).onConflictDoUpdate({
+          const [user] = await db2.insert(users).values(userData).onConflictDoUpdate({
             target: users.id,
             set: {
               ...userData,
@@ -2821,7 +2876,7 @@ var init_storage = __esm({
       // Uses Evidence Library database to populate dropdowns dynamically
       async getDistinctEquipmentGroups() {
         try {
-          const result = await db.selectDistinct({ group: evidenceLibrary.equipmentGroup }).from(evidenceLibrary).where(sql2`${evidenceLibrary.equipmentGroup} IS NOT NULL AND ${evidenceLibrary.equipmentGroup} != ''`).orderBy(evidenceLibrary.equipmentGroup);
+          const result = await db2.selectDistinct({ group: evidenceLibrary.equipmentGroup }).from(evidenceLibrary).where(sql2`${evidenceLibrary.equipmentGroup} IS NOT NULL AND ${evidenceLibrary.equipmentGroup} != ''`).orderBy(evidenceLibrary.equipmentGroup);
           return result.map((row) => row.group);
         } catch (error) {
           console.error("[Storage] Error getting equipment groups:", error);
@@ -2830,8 +2885,8 @@ var init_storage = __esm({
       }
       async getEquipmentTypesForGroup(group) {
         try {
-          const result = await db.selectDistinct({ type: evidenceLibrary.equipmentType }).from(evidenceLibrary).where(and(
-            eq(evidenceLibrary.equipmentGroup, group),
+          const result = await db2.selectDistinct({ type: evidenceLibrary.equipmentType }).from(evidenceLibrary).where(and(
+            eq2(evidenceLibrary.equipmentGroup, group),
             sql2`${evidenceLibrary.equipmentType} IS NOT NULL AND ${evidenceLibrary.equipmentType} != ''`
           )).orderBy(evidenceLibrary.equipmentType);
           return result.map((row) => row.type);
@@ -2842,9 +2897,9 @@ var init_storage = __esm({
       }
       async getEquipmentSubtypesForGroupAndType(group, type) {
         try {
-          const result = await db.select({ subtype: evidenceLibrary.subtype }).from(evidenceLibrary).where(and(
-            eq(evidenceLibrary.equipmentGroup, group),
-            eq(evidenceLibrary.equipmentType, type)
+          const result = await db2.select({ subtype: evidenceLibrary.subtype }).from(evidenceLibrary).where(and(
+            eq2(evidenceLibrary.equipmentGroup, group),
+            eq2(evidenceLibrary.equipmentType, type)
           ));
           const subtypes = result.map((row) => row.subtype).filter(
             (subtype, index2, array) => subtype && subtype.trim() !== "" && array.indexOf(subtype) === index2
@@ -2859,10 +2914,10 @@ var init_storage = __esm({
       // EQUIPMENT TYPES UPDATE AND DELETE OPERATIONS (Universal Protocol Standard)
       async updateEquipmentType(id, data) {
         console.log(`[DatabaseInvestigationStorage] Updating equipment type ${id} with data:`, data);
-        const [updatedType] = await db.update(equipmentTypes).set({
+        const [updatedType] = await db2.update(equipmentTypes).set({
           ...data,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq(equipmentTypes.id, id)).returning();
+        }).where(eq2(equipmentTypes.id, id)).returning();
         if (!updatedType) {
           throw new Error(`Equipment type with ID ${id} not found`);
         }
@@ -2871,21 +2926,21 @@ var init_storage = __esm({
       }
       async deleteEquipmentType(id) {
         console.log(`[DatabaseInvestigationStorage] PERMANENT DELETION: Completely purging equipment type ${id} from database`);
-        const dependentSubtypes = await db.select().from(equipmentSubtypes).where(eq(equipmentSubtypes.equipmentTypeId, id));
+        const dependentSubtypes = await db2.select().from(equipmentSubtypes).where(eq2(equipmentSubtypes.equipmentTypeId, id));
         if (dependentSubtypes.length > 0) {
-          await db.delete(equipmentSubtypes).where(eq(equipmentSubtypes.equipmentTypeId, id));
+          await db2.delete(equipmentSubtypes).where(eq2(equipmentSubtypes.equipmentTypeId, id));
           console.log(`[DatabaseInvestigationStorage] PERMANENT DELETION: Purged ${dependentSubtypes.length} dependent equipment subtypes`);
         }
-        await db.delete(equipmentTypes).where(eq(equipmentTypes.id, id));
+        await db2.delete(equipmentTypes).where(eq2(equipmentTypes.id, id));
         console.log(`[DatabaseInvestigationStorage] PERMANENT DELETION COMPLETE: Equipment type ${id} and all dependencies permanently purged from all storage`);
       }
       // EQUIPMENT SUBTYPES UPDATE AND DELETE OPERATIONS (Universal Protocol Standard)
       async updateEquipmentSubtype(id, data) {
         console.log(`[DatabaseInvestigationStorage] Updating equipment subtype ${id} with data:`, data);
-        const [updatedSubtype] = await db.update(equipmentSubtypes).set({
+        const [updatedSubtype] = await db2.update(equipmentSubtypes).set({
           ...data,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq(equipmentSubtypes.id, id)).returning();
+        }).where(eq2(equipmentSubtypes.id, id)).returning();
         if (!updatedSubtype) {
           throw new Error(`Equipment subtype with ID ${id} not found`);
         }
@@ -2894,15 +2949,15 @@ var init_storage = __esm({
       }
       async deleteEquipmentSubtype(id) {
         console.log(`[DatabaseInvestigationStorage] SOFT DELETE - Deactivating equipment subtype ${id}`);
-        await db.update(equipmentSubtypes).set({
+        await db2.update(equipmentSubtypes).set({
           isActive: false,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq(equipmentSubtypes.id, id));
+        }).where(eq2(equipmentSubtypes.id, id));
         console.log(`[DatabaseInvestigationStorage] Successfully deactivated equipment subtype ${id}`);
       }
       // PERMANENT DELETE OPERATIONS WITH AUDIT LOGGING
       async createAuditLog(action, targetTable, targetId, payload, actorId) {
-        await db.insert(auditLogs).values({
+        await db2.insert(auditLogs).values({
           action,
           targetTable,
           targetId,
@@ -2912,8 +2967,8 @@ var init_storage = __esm({
       }
       async deleteEvidenceByCode(equipmentCode, actorId) {
         console.log(`[DELETE AUDIT] Permanent delete evidence ${equipmentCode} by ${actorId}`);
-        return await db.transaction(async (tx) => {
-          const [evidence2] = await tx.select().from(evidenceLibrary).where(eq(evidenceLibrary.equipmentCode, equipmentCode));
+        return await db2.transaction(async (tx) => {
+          const [evidence2] = await tx.select().from(evidenceLibrary).where(eq2(evidenceLibrary.equipmentCode, equipmentCode));
           if (!evidence2) {
             throw new Error(`Evidence not found: ${equipmentCode}`);
           }
@@ -2924,17 +2979,17 @@ var init_storage = __esm({
             payload: evidence2,
             actorId
           });
-          await tx.delete(evidenceLibrary).where(eq(evidenceLibrary.equipmentCode, equipmentCode));
+          await tx.delete(evidenceLibrary).where(eq2(evidenceLibrary.equipmentCode, equipmentCode));
           console.log(`[DELETE AUDIT] Evidence ${equipmentCode} permanently deleted and logged`);
         });
       }
       async bulkDeleteEvidenceByCodes(equipmentCodes, actorId) {
         console.log(`[DELETE AUDIT] Bulk delete ${equipmentCodes.length} evidence items by ${actorId}`);
-        return await db.transaction(async (tx) => {
+        return await db2.transaction(async (tx) => {
           let deleted = 0;
           for (const code of equipmentCodes) {
             try {
-              const [evidence2] = await tx.select().from(evidenceLibrary).where(eq(evidenceLibrary.equipmentCode, code));
+              const [evidence2] = await tx.select().from(evidenceLibrary).where(eq2(evidenceLibrary.equipmentCode, code));
               if (evidence2) {
                 await tx.insert(auditLogs).values({
                   action: "delete",
@@ -2943,7 +2998,7 @@ var init_storage = __esm({
                   payload: evidence2,
                   actorId
                 });
-                await tx.delete(evidenceLibrary).where(eq(evidenceLibrary.equipmentCode, code));
+                await tx.delete(evidenceLibrary).where(eq2(evidenceLibrary.equipmentCode, code));
                 deleted++;
               }
             } catch (error) {
@@ -2956,14 +3011,14 @@ var init_storage = __esm({
       }
       async deleteEquipmentGroup(groupId, actorId) {
         console.log(`[DELETE AUDIT] Permanent delete equipment group ${groupId} by ${actorId}`);
-        return await db.transaction(async (tx) => {
-          const [group] = await tx.select().from(equipmentGroups).where(eq(equipmentGroups.id, groupId));
+        return await db2.transaction(async (tx) => {
+          const [group] = await tx.select().from(equipmentGroups).where(eq2(equipmentGroups.id, groupId));
           if (!group) {
             throw new Error(`Equipment group not found: ${groupId}`);
           }
           const [typeCount] = await tx.select({ count: sql2`count(*)` }).from(equipmentTypes).where(or(
-            eq(equipmentTypes.groupId, groupId),
-            eq(equipmentTypes.equipmentGroupId, groupId)
+            eq2(equipmentTypes.groupId, groupId),
+            eq2(equipmentTypes.equipmentGroupId, groupId)
           ));
           if (typeCount.count > 0) {
             throw new Error(`RESTRICT: Cannot delete group with ${typeCount.count} dependent types`);
@@ -2975,20 +3030,20 @@ var init_storage = __esm({
             payload: group,
             actorId
           });
-          await tx.delete(equipmentGroups).where(eq(equipmentGroups.id, groupId));
+          await tx.delete(equipmentGroups).where(eq2(equipmentGroups.id, groupId));
           console.log(`[DELETE AUDIT] Equipment group ${groupId} permanently deleted`);
         });
       }
       async deleteEquipmentType(typeId, actorId) {
         console.log(`[DELETE AUDIT] Permanent delete equipment type ${typeId} by ${actorId}`);
-        return await db.transaction(async (tx) => {
-          const [type] = await tx.select().from(equipmentTypes).where(eq(equipmentTypes.id, typeId));
+        return await db2.transaction(async (tx) => {
+          const [type] = await tx.select().from(equipmentTypes).where(eq2(equipmentTypes.id, typeId));
           if (!type) {
             throw new Error(`Equipment type not found: ${typeId}`);
           }
           const [subtypeCount] = await tx.select({ count: sql2`count(*)` }).from(equipmentSubtypes).where(or(
-            eq(equipmentSubtypes.typeId, typeId),
-            eq(equipmentSubtypes.equipmentTypeId, typeId)
+            eq2(equipmentSubtypes.typeId, typeId),
+            eq2(equipmentSubtypes.equipmentTypeId, typeId)
           ));
           if (subtypeCount.count > 0) {
             throw new Error(`RESTRICT: Cannot delete type with ${subtypeCount.count} dependent subtypes`);
@@ -3000,14 +3055,14 @@ var init_storage = __esm({
             payload: type,
             actorId
           });
-          await tx.delete(equipmentTypes).where(eq(equipmentTypes.id, typeId));
+          await tx.delete(equipmentTypes).where(eq2(equipmentTypes.id, typeId));
           console.log(`[DELETE AUDIT] Equipment type ${typeId} permanently deleted`);
         });
       }
       async deleteEquipmentSubtype(subtypeId, actorId) {
         console.log(`[DELETE AUDIT] Permanent delete equipment subtype ${subtypeId} by ${actorId}`);
-        return await db.transaction(async (tx) => {
-          const [subtype] = await tx.select().from(equipmentSubtypes).where(eq(equipmentSubtypes.id, subtypeId));
+        return await db2.transaction(async (tx) => {
+          const [subtype] = await tx.select().from(equipmentSubtypes).where(eq2(equipmentSubtypes.id, subtypeId));
           if (!subtype) {
             throw new Error(`Equipment subtype not found: ${subtypeId}`);
           }
@@ -3018,14 +3073,14 @@ var init_storage = __esm({
             payload: subtype,
             actorId
           });
-          await tx.delete(equipmentSubtypes).where(eq(equipmentSubtypes.id, subtypeId));
+          await tx.delete(equipmentSubtypes).where(eq2(equipmentSubtypes.id, subtypeId));
           console.log(`[DELETE AUDIT] Equipment subtype ${subtypeId} permanently deleted`);
         });
       }
       async deleteAiSetting(settingId, actorId) {
         console.log(`[DELETE AUDIT] Permanent delete AI setting ${settingId} by ${actorId}`);
-        return await db.transaction(async (tx) => {
-          const [setting] = await tx.select().from(aiSettings).where(eq(aiSettings.id, settingId));
+        return await db2.transaction(async (tx) => {
+          const [setting] = await tx.select().from(aiSettings).where(eq2(aiSettings.id, settingId));
           if (!setting) {
             throw new Error(`AI setting not found: ${settingId}`);
           }
@@ -3036,7 +3091,7 @@ var init_storage = __esm({
             payload: setting,
             actorId
           });
-          await tx.delete(aiSettings).where(eq(aiSettings.id, settingId));
+          await tx.delete(aiSettings).where(eq2(aiSettings.id, settingId));
           console.log(`[DELETE AUDIT] AI setting ${settingId} permanently deleted`);
         });
       }
@@ -3045,13 +3100,13 @@ var init_storage = __esm({
         try {
           const existing = await this.getRcaTriage(data.incidentId);
           if (existing) {
-            const [updated] = await db.update(rcaTriage).set({
+            const [updated] = await db2.update(rcaTriage).set({
               ...data,
               updatedAt: /* @__PURE__ */ new Date()
-            }).where(eq(rcaTriage.incidentId, data.incidentId)).returning();
+            }).where(eq2(rcaTriage.incidentId, data.incidentId)).returning();
             return updated;
           } else {
-            const [created] = await db.insert(rcaTriage).values(data).returning();
+            const [created] = await db2.insert(rcaTriage).values(data).returning();
             return created;
           }
         } catch (error) {
@@ -3061,7 +3116,7 @@ var init_storage = __esm({
       }
       async getRcaTriage(incidentId) {
         try {
-          const [triage] = await db.select().from(rcaTriage).where(eq(rcaTriage.incidentId, incidentId));
+          const [triage] = await db2.select().from(rcaTriage).where(eq2(rcaTriage.incidentId, incidentId));
           return triage;
         } catch (error) {
           console.error("[STORAGE] Error fetching RCA triage:", error);
@@ -3073,13 +3128,13 @@ var init_storage = __esm({
         try {
           const existing = await this.getRcaHistory(data.incidentId);
           if (existing) {
-            const [updated] = await db.update(rcaHistory).set({
+            const [updated] = await db2.update(rcaHistory).set({
               ...data,
               updatedAt: /* @__PURE__ */ new Date()
-            }).where(eq(rcaHistory.incidentId, data.incidentId)).returning();
+            }).where(eq2(rcaHistory.incidentId, data.incidentId)).returning();
             return updated;
           } else {
-            const [created] = await db.insert(rcaHistory).values(data).returning();
+            const [created] = await db2.insert(rcaHistory).values(data).returning();
             return created;
           }
         } catch (error) {
@@ -3089,7 +3144,7 @@ var init_storage = __esm({
       }
       async getRcaHistory(incidentId) {
         try {
-          const [history] = await db.select().from(rcaHistory).where(eq(rcaHistory.incidentId, incidentId));
+          const [history] = await db2.select().from(rcaHistory).where(eq2(rcaHistory.incidentId, incidentId));
           return history;
         } catch (error) {
           console.error("[STORAGE] Error fetching RCA history:", error);
@@ -3098,10 +3153,10 @@ var init_storage = __esm({
       }
       async getRcaHistoriesByStatus(statuses) {
         try {
-          let query = db.select().from(rcaHistory);
+          let query = db2.select().from(rcaHistory);
           if (statuses && statuses.length > 0) {
             query = query.where(
-              or(...statuses.map((status) => eq(rcaHistory.status, status)))
+              or(...statuses.map((status) => eq2(rcaHistory.status, status)))
             );
           }
           const results = await query.orderBy(sql2`${rcaHistory.updatedAt} desc`);
@@ -4729,60 +4784,220 @@ Respond in JSON format:
   }
 });
 
+// server/config.ts
+var ADMIN_ROLE_NAME, DEFAULT_ADMIN_RETURN_URL, ADMIN_SECTIONS;
+var init_config = __esm({
+  "server/config.ts"() {
+    "use strict";
+    ADMIN_ROLE_NAME = process.env.ADMIN_ROLE_NAME || "admin";
+    DEFAULT_ADMIN_RETURN_URL = process.env.DEFAULT_ADMIN_RETURN_URL || "/admin/settings";
+    ADMIN_SECTIONS = process.env.ADMIN_SECTIONS?.split(",").map((s) => s.trim()).filter(Boolean) || ["ai", "evidence", "taxonomy", "workflow", "status", "debug"];
+  }
+});
+
 // server/rbac-middleware.ts
-async function requireAdmin(req, res, next) {
+var rbac_middleware_exports = {};
+__export(rbac_middleware_exports, {
+  allowWhenBootstrapping: () => allowWhenBootstrapping,
+  createTestAdminUser: () => createTestAdminUser,
+  getUserByEmail: () => getUserByEmail,
+  getUserWithRoles: () => getUserWithRoles,
+  hashPassword: () => hashPassword,
+  inviteRateLimit: () => inviteRateLimit,
+  logAuditEvent: () => logAuditEvent,
+  loginRateLimit: () => loginRateLimit,
+  requireAdmin: () => requireAdmin,
+  requireAdminOrManager: () => requireAdminOrManager,
+  requireAuth: () => requireAuth,
+  requireInvestigatorOrAdmin: () => requireInvestigatorOrAdmin,
+  requireRole: () => requireRole,
+  verifyPassword: () => verifyPassword
+});
+import argon2 from "argon2";
+import rateLimit from "express-rate-limit";
+import { eq as eq3 } from "drizzle-orm";
+async function hashPassword(password) {
+  return await argon2.hash(password, {
+    type: argon2.argon2id,
+    memoryCost: 2 ** 16,
+    // 64 MB
+    timeCost: 3,
+    parallelism: 1
+  });
+}
+async function verifyPassword(hash, password) {
   try {
-    const userId = req.user?.id || req.headers["x-user-id"];
-    if (!userId) {
-      console.log("[RBAC] No user ID provided - denying access");
+    return await argon2.verify(hash, password);
+  } catch (error) {
+    console.error("[AUTH] Password verification error:", error);
+    return false;
+  }
+}
+async function getUserWithRoles(userId) {
+  try {
+    const [user] = await db2.select().from(users).where(eq3(users.id, userId)).limit(1);
+    if (!user || !user.isActive) return null;
+    const userRoleResults = await db2.select({ name: roles.name }).from(userRoles).innerJoin(roles, eq3(userRoles.roleId, roles.id)).where(eq3(userRoles.userId, userId));
+    return {
+      id: user.id,
+      email: user.email,
+      roles: userRoleResults.map((r) => r.name).filter(Boolean),
+      isActive: user.isActive,
+      passwordHash: user.passwordHash || void 0
+    };
+  } catch (error) {
+    console.error("[AUTH] Error getting user with roles:", error);
+    return null;
+  }
+}
+async function getUserByEmail(email) {
+  try {
+    const [user] = await db2.select().from(users).where(eq3(users.email, email)).limit(1);
+    if (!user || !user.isActive) return null;
+    const userRoleResults = await db2.select({ name: roles.name }).from(userRoles).innerJoin(roles, eq3(userRoles.roleId, roles.id)).where(eq3(userRoles.userId, user.id));
+    return {
+      id: user.id,
+      email: user.email,
+      roles: userRoleResults.map((r) => r.name).filter(Boolean),
+      isActive: user.isActive,
+      passwordHash: user.passwordHash || void 0
+    };
+  } catch (error) {
+    console.error("[AUTH] Error getting user by email:", error);
+    return null;
+  }
+}
+function requireAuth(req, res, next) {
+  if (!req.session?.user) {
+    return res.status(401).json({ code: "UNAUTHENTICATED", message: "Authentication required" });
+  }
+  if (!req.session.user.isActive) {
+    return res.status(401).json({ code: "ACCOUNT_DISABLED", message: "Account is disabled" });
+  }
+  req.user = req.session.user;
+  next();
+}
+function requireRole(requiredRole) {
+  return (req, res, next) => {
+    if (!req.session?.user) {
+      return res.status(401).json({ code: "UNAUTHENTICATED", message: "Authentication required" });
+    }
+    const userRoles2 = req.session.user.roles || [];
+    if (!userRoles2.includes(requiredRole)) {
+      return res.status(403).json({
+        code: "FORBIDDEN",
+        message: `${requiredRole} role required`
+      });
+    }
+    req.user = req.session.user;
+    next();
+  };
+}
+function requireAdmin(req, res, next) {
+  if (req.session?.user?.roles?.includes(ADMIN_ROLE_NAME)) return next();
+  res.set("Cache-Control", "no-store");
+  return res.status(403).json({ error: "forbidden" });
+}
+function requireAdminOrManager(req, res, next) {
+  if (!req.session?.user) {
+    return res.status(401).json({ code: "UNAUTHENTICATED", message: "Authentication required" });
+  }
+  const userRoles2 = req.session.user.roles || [];
+  if (!userRoles2.includes("admin") && !userRoles2.includes("manager")) {
+    return res.status(403).json({
+      code: "FORBIDDEN",
+      message: "Admin or Manager role required"
+    });
+  }
+  req.user = req.session.user;
+  next();
+}
+async function requireInvestigatorOrAdmin(req, res, next) {
+  try {
+    if (!req.session?.user) {
       return res.status(403).json({ reason: "forbidden", message: "Authentication required" });
     }
-    const user = await investigationStorage.getUser(userId);
-    if (!user) {
-      console.log(`[RBAC] User ${userId} not found - denying access`);
-      return res.status(403).json({ reason: "forbidden", message: "User not found" });
+    const userRoles2 = req.session.user.roles || [];
+    if (!userRoles2.includes("admin") && !userRoles2.includes("investigator")) {
+      return res.status(403).json({
+        reason: "forbidden",
+        message: "Investigator or Admin role required"
+      });
     }
-    if (user.role !== "admin") {
-      console.log(`[RBAC] User ${userId} has role '${user.role}', not 'admin' - denying access`);
-      return res.status(403).json({ reason: "forbidden", message: "Admin role required" });
-    }
-    req.user = {
-      id: user.id,
-      role: user.role,
-      email: user.email || void 0
-    };
-    console.log(`[RBAC] Admin access granted to user ${userId}`);
+    req.user = req.session.user;
     next();
   } catch (error) {
-    console.error("[RBAC] Error checking admin permissions:", error);
+    console.error("[RBAC] Error checking investigator permissions:", error);
     res.status(500).json({ error: "Permission check failed" });
   }
 }
-async function createTestAdminUser(userId = "test-admin") {
+async function logAuditEvent(action, actorId, targetTable, targetId, payload) {
   try {
-    await investigationStorage.upsertUser({
-      id: userId,
-      email: "admin@test.local",
-      firstName: "Test",
-      lastName: "Admin",
-      role: "admin"
+    await db2.insert(auditLogs).values({
+      action,
+      actorId,
+      targetTable,
+      targetId,
+      payload
     });
-    console.log(`[RBAC] Test admin user created: ${userId}`);
   } catch (error) {
-    console.log(`[RBAC] Admin user may already exist: ${userId}`);
+    console.error("[AUDIT] Failed to log audit event:", error);
   }
 }
+function allowWhenBootstrapping(req, res, next) {
+  if (req.headers["x-setup-token"] === process.env.SETUP_TOKEN && process.env.SETUP_TOKEN) {
+    return next();
+  }
+  if (process.env.NODE_ENV === "development" || process.env.EMAIL_DEV_MODE === "true") {
+    return next();
+  }
+  next();
+}
+async function createTestAdminUser(userId = "test-admin") {
+  try {
+    console.log(`[RBAC] Legacy createTestAdminUser called - use proper seed script instead`);
+  } catch (error) {
+    console.log(`[RBAC] Legacy function - use seed script instead`);
+  }
+}
+var loginRateLimit, inviteRateLimit;
 var init_rbac_middleware = __esm({
   "server/rbac-middleware.ts"() {
     "use strict";
-    init_storage();
+    init_db();
+    init_schema();
+    init_config();
+    loginRateLimit = rateLimit({
+      windowMs: 15 * 60 * 1e3,
+      // 15 minutes
+      max: 5,
+      // 5 attempts per window per IP
+      message: {
+        code: "RATE_LIMIT_EXCEEDED",
+        message: "Too many login attempts, please try again later"
+      },
+      standardHeaders: true,
+      legacyHeaders: false
+    });
+    inviteRateLimit = rateLimit({
+      windowMs: 60 * 60 * 1e3,
+      // 1 hour
+      max: 10,
+      // 10 invites per hour per IP
+      message: {
+        code: "RATE_LIMIT_EXCEEDED",
+        message: "Too many invite attempts, please try again later"
+      },
+      standardHeaders: true,
+      legacyHeaders: false
+    });
   }
 });
 
 // src/db/connection.ts
 import { drizzle as drizzle2 } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-var sql3, db2;
+var sql3, db3;
 var init_connection = __esm({
   "src/db/connection.ts"() {
     "use strict";
@@ -4791,14 +5006,14 @@ var init_connection = __esm({
       throw new Error("DATABASE_URL environment variable is required");
     }
     sql3 = neon(process.env.DATABASE_URL);
-    db2 = drizzle2(sql3, { schema: schema_exports });
+    db3 = drizzle2(sql3, { schema: schema_exports });
   }
 });
 
 // src/core/config.ts
 import { z as z2 } from "zod";
 var configSchema, config, Config, validateRequiredConfig, PORT, APP_BASE_URL, DATABASE_URL, JWT_SECRET, ROLES_ARRAY, SLA_PROFILE_STANDARD_HOURS, SLA_PROFILE_STANDARD_MS, STORAGE_POLICIES, SMTP_CONFIG;
-var init_config = __esm({
+var init_config2 = __esm({
   "src/core/config.ts"() {
     "use strict";
     configSchema = z2.object({
@@ -4942,204 +5157,29 @@ var init_evidence_service = __esm({
   }
 });
 
-// server/config/crypto-key.ts
-var crypto_key_exports = {};
-__export(crypto_key_exports, {
-  loadCryptoKey: () => loadCryptoKey
-});
-import fs2 from "fs";
-function loadCryptoKey() {
-  const env = process.env.CRYPTO_KEY_32;
-  if (env) {
-    try {
-      if (env.length === 44) {
-        const decoded = Buffer.from(env, "base64");
-        if (decoded.length === 32) {
-          return decoded.toString("utf8");
-        }
-        throw new Error(
-          `Invalid CRYPTO_KEY_32: Base64 decodes to ${decoded.length} bytes. Must be exactly 32 bytes.`
-        );
-      } else if (env.length === 32) {
-        return env;
-      } else {
-        throw new Error(
-          `Invalid CRYPTO_KEY_32 format: ${env.length} chars. Must be 32 chars or Base64-encoded 32 bytes (44 chars).`
-        );
-      }
-    } catch (error) {
-      if (error instanceof Error && error.message.startsWith("Invalid CRYPTO_KEY_32")) {
-        throw error;
-      }
-      throw new Error(`Invalid CRYPTO_KEY_32: Not valid Base64 - ${error}`);
-    }
-  }
-  const file = process.env.CRYPTO_KEY_FILE;
-  if (file && fs2.existsSync(file)) {
-    const k = fs2.readFileSync(file, "utf8").trim();
-    if (k.length === 32) return k;
-    try {
-      const decoded = Buffer.from(k, "base64");
-      if (decoded.length === 32) {
-        return decoded.toString("utf8");
-      }
-    } catch {
-    }
-    throw new Error(
-      `Invalid CRYPTO_KEY_FILE: Must be 32 chars or Base64-encoded 32 bytes.`
-    );
-  }
-  throw new Error(
-    "Missing CRYPTO_KEY_32. Admin must set a 32-byte key (Base64 encoded) via Replit secrets."
-  );
-}
-var init_crypto_key = __esm({
-  "server/config/crypto-key.ts"() {
-    "use strict";
-  }
-});
-
-// server/security/crypto.ts
-import crypto3 from "crypto";
-var ALG, KEY, encrypt, decrypt;
-var init_crypto = __esm({
-  "server/security/crypto.ts"() {
-    "use strict";
-    init_crypto_key();
-    ALG = "aes-256-gcm";
-    KEY = Buffer.from(loadCryptoKey(), "utf8");
-    encrypt = (s) => {
-      const iv = crypto3.randomBytes(12);
-      const c = crypto3.createCipheriv(ALG, KEY, iv);
-      const ct = Buffer.concat([c.update(s, "utf8"), c.final()]);
-      const tag = c.getAuthTag();
-      return Buffer.concat([iv, tag, ct]).toString("base64");
-    };
-    decrypt = (b64) => {
-      const raw = Buffer.from(b64, "base64");
-      const iv = raw.subarray(0, 12);
-      const tag = raw.subarray(12, 28);
-      const ct = raw.subarray(28);
-      const d = crypto3.createDecipheriv(ALG, KEY, iv);
-      d.setAuthTag(tag);
-      return Buffer.concat([d.update(ct), d.final()]).toString("utf8");
-    };
-  }
-});
-
-// server/crypto.ts
-var init_crypto2 = __esm({
-  "server/crypto.ts"() {
-    "use strict";
-    init_crypto();
-  }
-});
-
-// server/routes/aiSettings.ts
-var aiSettings_exports = {};
-__export(aiSettings_exports, {
-  getPlainApiKey: () => getPlainApiKey,
-  router: () => router4
-});
-import { Router as Router4 } from "express";
-async function getPlainApiKey(id) {
-  const result = await db.execute(`
-    SELECT api_key_cipher, api_key_iv 
-    FROM ai_settings 
-    WHERE id = $1 LIMIT 1
-  `, [id]);
-  const row = result.rows[0];
-  if (!row) throw new Error("Missing provider");
-  return decrypt(row.api_key_iv, row.api_key_cipher);
-}
-var router4;
-var init_aiSettings = __esm({
-  "server/routes/aiSettings.ts"() {
-    "use strict";
-    init_db();
-    init_crypto2();
-    init_rbac_middleware();
-    router4 = Router4();
-    router4.get("/api/admin/ai-settings", requireAdmin, async (_req, res) => {
-      try {
-        const rows = await db.execute(`
-      SELECT id, provider, model_id, is_active, created_at 
-      FROM ai_settings 
-      ORDER BY created_at DESC
-    `);
-        const result = rows.rows.map((row) => ({
-          id: row.id,
-          provider: row.provider,
-          modelId: row.model_id,
-          isActive: row.is_active,
-          createdAt: row.created_at,
-          apiKeyPreview: "***"
-        }));
-        console.log(`[ADMIN] Retrieved ${result.length} AI settings (NO HARDCODING)`);
-        res.json(result);
-      } catch (error) {
-        console.error("[ADMIN] Error fetching AI settings:", error);
-        res.status(500).json({ error: "Failed to fetch AI settings" });
-      }
-    });
-    router4.post("/api/admin/ai-settings", requireAdmin, async (req, res) => {
-      try {
-        const { provider, modelId, apiKey, isActive } = req.body || {};
-        if (!provider || !modelId || !apiKey) {
-          return res.status(400).json({ error: "provider, modelId, apiKey required" });
-        }
-        const { iv, cipher } = encrypt(apiKey);
-        if (isActive === true) {
-          await db.execute("UPDATE ai_settings SET is_active = false");
-        }
-        const result = await db.execute(`
-      INSERT INTO ai_settings (provider, model_id, api_key_cipher, api_key_iv, is_active, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-      RETURNING id
-    `, [provider, modelId, cipher, iv, !!isActive]);
-        const id = result.rows[0]?.id;
-        console.log(`[ADMIN] Created AI setting ID ${id} for ${provider}`);
-        res.status(201).json({ id });
-      } catch (error) {
-        console.error("[ADMIN] Error creating AI setting:", error);
-        res.status(500).json({ error: "Failed to create AI setting" });
-      }
-    });
-    router4.delete("/api/admin/ai-settings/:id", requireAdmin, async (req, res) => {
-      try {
-        await db.execute("DELETE FROM ai_settings WHERE id = $1", [Number(req.params.id)]);
-        console.log(`[ADMIN] Deleted AI setting ID ${req.params.id}`);
-        res.sendStatus(204);
-      } catch (error) {
-        console.error("[ADMIN] Error deleting AI setting:", error);
-        res.status(500).json({ error: "Failed to delete AI setting" });
-      }
-    });
-  }
-});
-
 // server/security/crypto-gcm.ts
 var crypto_gcm_exports = {};
 __export(crypto_gcm_exports, {
+  ENC_KEY: () => ENC_KEY,
   decryptSecret: () => decryptSecret,
   encryptSecret: () => encryptSecret
 });
-import crypto4 from "crypto";
-function encryptSecret(plaintext) {
-  const iv = crypto4.randomBytes(12);
-  const cipher = crypto4.createCipheriv("aes-256-gcm", Buffer.from(ENC_KEY, "utf8"), iv);
-  const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+import { randomBytes, createCipheriv, createDecipheriv } from "crypto";
+function encryptSecret(plain) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", ENC_KEY, iv);
+  const ct = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
   return {
-    keyCiphertextB64: ciphertext.toString("base64"),
+    keyCiphertextB64: ct.toString("base64"),
     keyIvB64: iv.toString("base64"),
     keyTagB64: tag.toString("base64")
   };
 }
 function decryptSecret(encrypted) {
-  const decipher = crypto4.createDecipheriv(
+  const decipher = createDecipheriv(
     "aes-256-gcm",
-    Buffer.from(ENC_KEY, "utf8"),
+    ENC_KEY,
     Buffer.from(encrypted.keyIvB64, "base64")
   );
   decipher.setAuthTag(Buffer.from(encrypted.keyTagB64, "base64"));
@@ -5149,12 +5189,13 @@ function decryptSecret(encrypted) {
   ]).toString("utf8");
   return plaintext;
 }
-var ENC_KEY;
+var K, ENC_KEY;
 var init_crypto_gcm = __esm({
   "server/security/crypto-gcm.ts"() {
     "use strict";
-    init_crypto_key();
-    ENC_KEY = loadCryptoKey();
+    K = process.env.CRYPTO_KEY_32 || process.env.AI_KEY_ENCRYPTION_SECRET;
+    if (!K || K.length !== 32) throw new Error("CRYPTO_KEY_32 must be exactly 32 chars");
+    ENC_KEY = Buffer.from(K, "utf8");
   }
 });
 
@@ -5289,13 +5330,150 @@ var init_ai_provider_testers = __esm({
   }
 });
 
+// server/config/crypto-key.ts
+var crypto_key_exports = {};
+__export(crypto_key_exports, {
+  loadCryptoKey: () => loadCryptoKey
+});
+function loadCryptoKey() {
+  const K2 = process.env.CRYPTO_KEY_32 || process.env.AI_KEY_ENCRYPTION_SECRET;
+  if (!K2 || K2.length !== 32) {
+    throw new Error("CRYPTO_KEY_32 must be exactly 32 chars");
+  }
+  return K2;
+}
+var init_crypto_key = __esm({
+  "server/config/crypto-key.ts"() {
+    "use strict";
+  }
+});
+
+// server/security/crypto.ts
+import crypto3 from "crypto";
+var ALG, KEY, encrypt, decrypt;
+var init_crypto = __esm({
+  "server/security/crypto.ts"() {
+    "use strict";
+    init_crypto_key();
+    ALG = "aes-256-gcm";
+    KEY = Buffer.from(loadCryptoKey(), "utf8");
+    encrypt = (s) => {
+      const iv = crypto3.randomBytes(12);
+      const c = crypto3.createCipheriv(ALG, KEY, iv);
+      const ct = Buffer.concat([c.update(s, "utf8"), c.final()]);
+      const tag = c.getAuthTag();
+      return Buffer.concat([iv, tag, ct]).toString("base64");
+    };
+    decrypt = (b64) => {
+      const raw = Buffer.from(b64, "base64");
+      const iv = raw.subarray(0, 12);
+      const tag = raw.subarray(12, 28);
+      const ct = raw.subarray(28);
+      const d = crypto3.createDecipheriv(ALG, KEY, iv);
+      d.setAuthTag(tag);
+      return Buffer.concat([d.update(ct), d.final()]).toString("utf8");
+    };
+  }
+});
+
+// server/crypto.ts
+var init_crypto2 = __esm({
+  "server/crypto.ts"() {
+    "use strict";
+    init_crypto();
+  }
+});
+
+// server/routes/aiSettings.ts
+var aiSettings_exports = {};
+__export(aiSettings_exports, {
+  getPlainApiKey: () => getPlainApiKey,
+  router: () => router4
+});
+import { Router as Router4 } from "express";
+async function getPlainApiKey(id) {
+  const result = await db2.execute(`
+    SELECT api_key_cipher, api_key_iv 
+    FROM ai_settings 
+    WHERE id = $1 LIMIT 1
+  `, [id]);
+  const row = result.rows[0];
+  if (!row) throw new Error("Missing provider");
+  return decrypt(row.api_key_iv, row.api_key_cipher);
+}
+var router4;
+var init_aiSettings = __esm({
+  "server/routes/aiSettings.ts"() {
+    "use strict";
+    init_db();
+    init_crypto2();
+    init_rbac_middleware();
+    router4 = Router4();
+    router4.get("/api/admin/ai-settings", requireAdmin, async (_req, res) => {
+      try {
+        const rows = await db2.execute(`
+      SELECT id, provider, model_id, is_active, created_at 
+      FROM ai_settings 
+      ORDER BY created_at DESC
+    `);
+        const result = rows.rows.map((row) => ({
+          id: row.id,
+          provider: row.provider,
+          modelId: row.model_id,
+          isActive: row.is_active,
+          createdAt: row.created_at,
+          apiKeyPreview: "***"
+        }));
+        console.log(`[ADMIN] Retrieved ${result.length} AI settings (NO HARDCODING)`);
+        res.json(result);
+      } catch (error) {
+        console.error("[ADMIN] Error fetching AI settings:", error);
+        res.status(500).json({ error: "Failed to fetch AI settings" });
+      }
+    });
+    router4.post("/api/admin/ai-settings", requireAdmin, async (req, res) => {
+      try {
+        const { provider, modelId, apiKey, isActive } = req.body || {};
+        if (!provider || !modelId || !apiKey) {
+          return res.status(400).json({ error: "provider, modelId, apiKey required" });
+        }
+        const { iv, cipher } = encrypt(apiKey);
+        if (isActive === true) {
+          await db2.execute("UPDATE ai_settings SET is_active = false");
+        }
+        const result = await db2.execute(`
+      INSERT INTO ai_settings (provider, model_id, api_key_cipher, api_key_iv, is_active, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+      RETURNING id
+    `, [provider, modelId, cipher, iv, !!isActive]);
+        const id = result.rows[0]?.id;
+        console.log(`[ADMIN] Created AI setting ID ${id} for ${provider}`);
+        res.status(201).json({ id });
+      } catch (error) {
+        console.error("[ADMIN] Error creating AI setting:", error);
+        res.status(500).json({ error: "Failed to create AI setting" });
+      }
+    });
+    router4.delete("/api/admin/ai-settings/:id", requireAdmin, async (req, res) => {
+      try {
+        await db2.execute("DELETE FROM ai_settings WHERE id = $1", [Number(req.params.id)]);
+        console.log(`[ADMIN] Deleted AI setting ID ${req.params.id}`);
+        res.sendStatus(204);
+      } catch (error) {
+        console.error("[ADMIN] Error deleting AI setting:", error);
+        res.status(500).json({ error: "Failed to delete AI setting" });
+      }
+    });
+  }
+});
+
 // server/version.ts
 var version_exports = {};
 __export(version_exports, {
   APP_BUILT_AT: () => APP_BUILT_AT,
   APP_VERSION: () => APP_VERSION
 });
-import fs3 from "fs";
+import fs2 from "fs";
 var fallbackVersion, version, APP_VERSION, APP_BUILT_AT;
 var init_version = __esm({
   "server/version.ts"() {
@@ -5304,7 +5482,7 @@ var init_version = __esm({
     version = process.env.GIT_COMMIT || "";
     if (!version) {
       try {
-        const buildFile = JSON.parse(fs3.readFileSync("./build-version.json", "utf8"));
+        const buildFile = JSON.parse(fs2.readFileSync("./build-version.json", "utf8"));
         version = buildFile?.commit || buildFile?.version || "";
       } catch {
       }
@@ -5322,18 +5500,18 @@ __export(equipment_exports, {
   validateEquipmentChain: () => validateEquipmentChain
 });
 import { Router as Router5 } from "express";
-import { eq as eq5, and as and4 } from "drizzle-orm";
+import { eq as eq7, and as and5 } from "drizzle-orm";
 async function validateEquipmentChain(groupId, typeId, subtypeId) {
   console.log(`[EQUIPMENT-API] Validating chain: group=${groupId}, type=${typeId}, subtype=${subtypeId}`);
-  const type = await db.query.equipmentTypes.findFirst({
-    where: eq5(equipmentTypes.id, typeId),
+  const type = await db2.query.equipmentTypes.findFirst({
+    where: eq7(equipmentTypes.id, typeId),
     columns: { groupId: true }
   });
   if (!type || type.groupId !== groupId) {
     throw new Error("type_not_in_group");
   }
-  const subtype = await db.query.equipmentSubtypes.findFirst({
-    where: eq5(equipmentSubtypes.id, subtypeId),
+  const subtype = await db2.query.equipmentSubtypes.findFirst({
+    where: eq7(equipmentSubtypes.id, subtypeId),
     columns: { typeId: true }
   });
   if (!subtype || subtype.typeId !== typeId) {
@@ -5353,10 +5531,10 @@ var init_equipment = __esm({
       console.log("[EQUIPMENT-API] Fetching equipment groups");
       const active = req.query.active === "1";
       try {
-        const data = await db.select({
+        const data = await db2.select({
           id: equipmentGroups.id,
           name: equipmentGroups.name
-        }).from(equipmentGroups).where(active ? eq5(equipmentGroups.isActive, true) : void 0).orderBy(equipmentGroups.name);
+        }).from(equipmentGroups).where(active ? eq7(equipmentGroups.isActive, true) : void 0).orderBy(equipmentGroups.name);
         res.set("Cache-Control", "no-store");
         res.json({ ok: true, data });
         console.log(`[EQUIPMENT-API] Returned ${data.length} equipment groups`);
@@ -5379,12 +5557,12 @@ var init_equipment = __esm({
       }
       const active = req.query.active === "1";
       try {
-        const whereConditions = [eq5(equipmentTypes.groupId, groupId)];
-        if (active) whereConditions.push(eq5(equipmentTypes.isActive, true));
-        const data = await db.select({
+        const whereConditions = [eq7(equipmentTypes.groupId, groupId)];
+        if (active) whereConditions.push(eq7(equipmentTypes.isActive, true));
+        const data = await db2.select({
           id: equipmentTypes.id,
           name: equipmentTypes.name
-        }).from(equipmentTypes).where(and4(...whereConditions)).orderBy(equipmentTypes.name);
+        }).from(equipmentTypes).where(and5(...whereConditions)).orderBy(equipmentTypes.name);
         res.set("Cache-Control", "no-store");
         res.json({ ok: true, data });
         console.log(`[EQUIPMENT-API] Returned ${data.length} equipment types for group ${groupId}`);
@@ -5407,12 +5585,12 @@ var init_equipment = __esm({
       }
       const active = req.query.active === "1";
       try {
-        const whereConditions = [eq5(equipmentSubtypes.typeId, typeId)];
-        if (active) whereConditions.push(eq5(equipmentSubtypes.isActive, true));
-        const data = await db.select({
+        const whereConditions = [eq7(equipmentSubtypes.typeId, typeId)];
+        if (active) whereConditions.push(eq7(equipmentSubtypes.isActive, true));
+        const data = await db2.select({
           id: equipmentSubtypes.id,
           name: equipmentSubtypes.name
-        }).from(equipmentSubtypes).where(and4(...whereConditions)).orderBy(equipmentSubtypes.name);
+        }).from(equipmentSubtypes).where(and5(...whereConditions)).orderBy(equipmentSubtypes.name);
         res.set("Cache-Control", "no-store");
         res.json({ ok: true, data });
         console.log(`[EQUIPMENT-API] Returned ${data.length} equipment subtypes for type ${typeId}`);
@@ -8151,7 +8329,7 @@ __export(assets_exports, {
   default: () => assets_default
 });
 import { Router as Router6 } from "express";
-import { eq as eq6, and as and5, or as or2, ilike, desc } from "drizzle-orm";
+import { eq as eq8, and as and6, or as or2, ilike, desc } from "drizzle-orm";
 var router6, simpleAuth, simpleAuthorize, assets_default;
 var init_assets = __esm({
   "src/api/assets.ts"() {
@@ -8193,18 +8371,18 @@ var init_assets = __esm({
           );
         }
         if (manufacturerId && typeof manufacturerId === "string") {
-          whereConditions.push(eq6(assets.manufacturerId, manufacturerId));
+          whereConditions.push(eq8(assets.manufacturerId, manufacturerId));
         }
         if (modelId && typeof modelId === "string") {
-          whereConditions.push(eq6(assets.modelId, modelId));
+          whereConditions.push(eq8(assets.modelId, modelId));
         }
         if (group && typeof group === "string") {
-          whereConditions.push(eq6(assets.equipmentGroup, group));
+          whereConditions.push(eq8(assets.equipmentGroup, group));
         }
         if (type && typeof type === "string") {
-          whereConditions.push(eq6(assets.equipmentType, type));
+          whereConditions.push(eq8(assets.equipmentType, type));
         }
-        const assetsData = await db2.select({
+        const assetsData = await db3.select({
           id: assets.id,
           tagCode: assets.tagCode,
           manufacturerId: assets.manufacturerId,
@@ -8216,7 +8394,7 @@ var init_assets = __esm({
           location: assets.location,
           commissioningDate: assets.commissioningDate,
           createdAt: assets.createdAt
-        }).from(assets).where(whereConditions.length > 0 ? and5(...whereConditions) : void 0).orderBy(desc(assets.createdAt)).limit(parseInt(limit));
+        }).from(assets).where(whereConditions.length > 0 ? and6(...whereConditions) : void 0).orderBy(desc(assets.createdAt)).limit(parseInt(limit));
         console.log("[ASSETS] Found", assetsData.length, "assets");
         res.json(assetsData);
       } catch (error) {
@@ -8231,17 +8409,17 @@ var init_assets = __esm({
       try {
         const assetId = req.params.id;
         console.log("[ASSETS] Getting asset:", assetId);
-        const [asset] = await db2.select().from(assets).where(eq6(assets.id, assetId)).limit(1);
+        const [asset] = await db3.select().from(assets).where(eq8(assets.id, assetId)).limit(1);
         if (!asset) {
           return res.status(404).json({ error: "Asset not found" });
         }
         let manufacturer = null;
         let model = null;
         if (asset.manufacturerId) {
-          [manufacturer] = await db2.select().from(manufacturers).where(eq6(manufacturers.id, asset.manufacturerId)).limit(1);
+          [manufacturer] = await db3.select().from(manufacturers).where(eq8(manufacturers.id, asset.manufacturerId)).limit(1);
         }
         if (asset.modelId) {
-          [model] = await db2.select().from(models).where(eq6(models.id, asset.modelId)).limit(1);
+          [model] = await db3.select().from(models).where(eq8(models.id, asset.modelId)).limit(1);
         }
         res.json({
           ...asset,
@@ -8279,12 +8457,12 @@ var init_assets = __esm({
         let finalModelId = modelId;
         if (!finalManufacturerId && manufacturerName) {
           console.log("[ASSETS] Creating/finding manufacturer:", manufacturerName);
-          const [existingManufacturer] = await db2.select().from(manufacturers).where(eq6(manufacturers.name, manufacturerName)).limit(1);
+          const [existingManufacturer] = await db3.select().from(manufacturers).where(eq8(manufacturers.name, manufacturerName)).limit(1);
           if (existingManufacturer) {
             finalManufacturerId = existingManufacturer.id;
           } else {
             const manufacturerInsert = { name: manufacturerName };
-            const [newManufacturer] = await db2.insert(manufacturers).values(manufacturerInsert).returning();
+            const [newManufacturer] = await db3.insert(manufacturers).values(manufacturerInsert).returning();
             finalManufacturerId = newManufacturer.id;
             console.log("[ASSETS] Created manufacturer:", newManufacturer.id);
           }
@@ -8293,9 +8471,9 @@ var init_assets = __esm({
           console.log("[ASSETS] Creating/finding model:", modelData);
           const modelName = modelData.name;
           const modelVariant = modelData.variant || null;
-          const [existingModel] = await db2.select().from(models).where(and5(
-            eq6(models.manufacturerId, finalManufacturerId),
-            eq6(models.name, modelName)
+          const [existingModel] = await db3.select().from(models).where(and6(
+            eq8(models.manufacturerId, finalManufacturerId),
+            eq8(models.name, modelName)
           )).limit(1);
           if (existingModel) {
             finalModelId = existingModel.id;
@@ -8305,7 +8483,7 @@ var init_assets = __esm({
               name: modelName,
               variant: modelVariant
             };
-            const [newModel] = await db2.insert(models).values(modelInsert).returning();
+            const [newModel] = await db3.insert(models).values(modelInsert).returning();
             finalModelId = newModel.id;
             console.log("[ASSETS] Created model:", newModel.id);
           }
@@ -8321,15 +8499,15 @@ var init_assets = __esm({
           criticality,
           commissioningDate: commissioningDate ? commissioningDate : null
         };
-        const [newAsset] = await db2.insert(assets).values(assetInsert).returning();
+        const [newAsset] = await db3.insert(assets).values(assetInsert).returning();
         console.log("[ASSETS] Created asset:", newAsset.id);
         let manufacturer = null;
         let model = null;
         if (finalManufacturerId) {
-          [manufacturer] = await db2.select().from(manufacturers).where(eq6(manufacturers.id, finalManufacturerId)).limit(1);
+          [manufacturer] = await db3.select().from(manufacturers).where(eq8(manufacturers.id, finalManufacturerId)).limit(1);
         }
         if (finalModelId) {
-          [model] = await db2.select().from(models).where(eq6(models.id, finalModelId)).limit(1);
+          [model] = await db3.select().from(models).where(eq8(models.id, finalModelId)).limit(1);
         }
         res.status(201).json({
           ...newAsset,
@@ -8372,7 +8550,7 @@ var init_manufacturers = __esm({
         if (query && typeof query === "string") {
           whereCondition = ilike2(manufacturers.name, `%${query}%`);
         }
-        const manufacturersData = await db2.select({
+        const manufacturersData = await db3.select({
           id: manufacturers.id,
           name: manufacturers.name,
           createdAt: manufacturers.createdAt
@@ -8397,7 +8575,7 @@ __export(models_exports, {
   default: () => models_default
 });
 import { Router as Router8 } from "express";
-import { eq as eq7, and as and6, ilike as ilike3 } from "drizzle-orm";
+import { eq as eq9, and as and7, ilike as ilike3 } from "drizzle-orm";
 var router8, models_default;
 var init_models = __esm({
   "src/api/models.ts"() {
@@ -8411,18 +8589,18 @@ var init_models = __esm({
         console.log("[MODELS] Searching models:", { manufacturerId, query, limit });
         let whereConditions = [];
         if (manufacturerId && typeof manufacturerId === "string") {
-          whereConditions.push(eq7(models.manufacturerId, manufacturerId));
+          whereConditions.push(eq9(models.manufacturerId, manufacturerId));
         }
         if (query && typeof query === "string") {
           whereConditions.push(ilike3(models.name, `%${query}%`));
         }
-        const modelsData = await db2.select({
+        const modelsData = await db3.select({
           id: models.id,
           manufacturerId: models.manufacturerId,
           name: models.name,
           variant: models.variant,
           createdAt: models.createdAt
-        }).from(models).where(whereConditions.length > 0 ? and6(...whereConditions) : void 0).orderBy(models.name).limit(parseInt(limit));
+        }).from(models).where(whereConditions.length > 0 ? and7(...whereConditions) : void 0).orderBy(models.name).limit(parseInt(limit));
         console.log("[MODELS] Found", modelsData.length, "models");
         res.json(modelsData);
       } catch (error) {
@@ -8443,7 +8621,7 @@ var PERMISSIONS, authorize, requireReporter, requireAnalyst, requireApprover, re
 var init_rbac = __esm({
   "src/core/rbac.ts"() {
     "use strict";
-    init_config();
+    init_config2();
     PERMISSIONS = {
       // Incident Management
       CREATE_INCIDENT: ["Reporter", "Analyst", "Approver", "Admin"],
@@ -8500,7 +8678,7 @@ var init_rbac = __esm({
 });
 
 // src/services/incident_service.ts
-import { eq as eq8, and as and7, desc as desc3, asc } from "drizzle-orm";
+import { eq as eq10, and as and8, desc as desc3, asc } from "drizzle-orm";
 var IncidentService, incidentService;
 var init_incident_service = __esm({
   "src/services/incident_service.ts"() {
@@ -8526,7 +8704,7 @@ var init_incident_service = __esm({
           reporterId: user.id,
           status: "open"
         };
-        const [incident] = await db2.insert(incidentsNew).values(incidentData).returning();
+        const [incident] = await db3.insert(incidentsNew).values(incidentData).returning();
         console.log(`[INCIDENT_SERVICE] Created incident ${incident.id} by user ${user.id}`);
         return incident;
       }
@@ -8534,18 +8712,18 @@ var init_incident_service = __esm({
        * Get incident by ID with access control
        */
       async getIncidentById(id, user) {
-        let query = db2.select().from(incidentsNew).where(eq8(incidentsNew.id, id));
+        let query = db3.select().from(incidentsNew).where(eq10(incidentsNew.id, id));
         if (user.role === "Reporter") {
-          query = query.where(and7(
-            eq8(incidentsNew.id, id),
-            eq8(incidentsNew.reporterId, user.id)
+          query = query.where(and8(
+            eq10(incidentsNew.id, id),
+            eq10(incidentsNew.reporterId, user.id)
           ));
         }
         const [incident] = await query;
         if (!incident) {
           return null;
         }
-        const incidentSymptoms = await db2.select().from(symptoms).where(eq8(symptoms.incidentId, id)).orderBy(asc(symptoms.createdAt));
+        const incidentSymptoms = await db3.select().from(symptoms).where(eq10(symptoms.incidentId, id)).orderBy(asc(symptoms.createdAt));
         return {
           ...incident,
           symptoms: incidentSymptoms
@@ -8555,32 +8733,32 @@ var init_incident_service = __esm({
        * Get incidents with filters and access control
        */
       async getIncidents(filters, user) {
-        let query = db2.select().from(incidentsNew);
+        let query = db3.select().from(incidentsNew);
         if (user.role === "Reporter") {
-          query = query.where(eq8(incidentsNew.reporterId, user.id));
+          query = query.where(eq10(incidentsNew.reporterId, user.id));
         }
         const conditions = [];
         if (filters.status) {
-          conditions.push(eq8(incidentsNew.status, filters.status));
+          conditions.push(eq10(incidentsNew.status, filters.status));
         }
         if (filters.priority) {
-          conditions.push(eq8(incidentsNew.priority, filters.priority));
+          conditions.push(eq10(incidentsNew.priority, filters.priority));
         }
         if (filters.reporterId && user.role !== "Reporter") {
-          conditions.push(eq8(incidentsNew.reporterId, filters.reporterId));
+          conditions.push(eq10(incidentsNew.reporterId, filters.reporterId));
         }
         if (conditions.length > 0) {
-          query = query.where(and7(...conditions));
+          query = query.where(and8(...conditions));
         }
         const limit = filters.limit || 20;
         const offset = filters.offset || 0;
         const incidents2 = await query.orderBy(desc3(incidentsNew.createdAt)).limit(limit).offset(offset);
-        const totalQuery = db2.select().from(incidentsNew);
+        const totalQuery = db3.select().from(incidentsNew);
         if (user.role === "Reporter") {
-          totalQuery.where(eq8(incidentsNew.reporterId, user.id));
+          totalQuery.where(eq10(incidentsNew.reporterId, user.id));
         }
         if (conditions.length > 0) {
-          totalQuery.where(and7(...conditions));
+          totalQuery.where(and8(...conditions));
         }
         const totalResult = await totalQuery;
         return {
@@ -8602,7 +8780,7 @@ var init_incident_service = __esm({
             throw new Error("Invalid status. Must be: open, investigating, closed");
           }
         }
-        const [updatedIncident] = await db2.update(incidentsNew).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where(eq8(incidentsNew.id, id)).returning();
+        const [updatedIncident] = await db3.update(incidentsNew).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where(eq10(incidentsNew.id, id)).returning();
         console.log(`[INCIDENT_SERVICE] Updated incident ${id} by user ${user.id}`);
         return updatedIncident;
       }
@@ -8621,7 +8799,7 @@ var init_incident_service = __esm({
           ...symptomData,
           incidentId
         };
-        const [createdSymptom] = await db2.insert(symptoms).values(symptom).returning();
+        const [createdSymptom] = await db3.insert(symptoms).values(symptom).returning();
         console.log(`[INCIDENT_SERVICE] Added symptom to incident ${incidentId} by user ${user.id}`);
         return createdSymptom;
       }
@@ -8630,7 +8808,7 @@ var init_incident_service = __esm({
        * Returns incidents that can be used to initiate workflows
        */
       async getIncidentsForWorkflow(user, searchQuery) {
-        let query = db2.select().from(incidentsNew).where(eq8(incidentsNew.status, "open"));
+        let query = db3.select().from(incidentsNew).where(eq10(incidentsNew.status, "open"));
         if (!["Analyst", "Approver", "Admin"].includes(user.role)) {
           throw new Error("Insufficient permissions to initiate workflows");
         }
@@ -8654,9 +8832,9 @@ var init_incident_service = __esm({
        * Get incident statistics for dashboard
        */
       async getIncidentStats(user) {
-        let baseQuery = db2.select().from(incidentsNew);
+        let baseQuery = db3.select().from(incidentsNew);
         if (user.role === "Reporter") {
-          baseQuery = baseQuery.where(eq8(incidentsNew.reporterId, user.id));
+          baseQuery = baseQuery.where(eq10(incidentsNew.reporterId, user.id));
         }
         const allIncidents = await baseQuery;
         const stats = {
@@ -8688,7 +8866,7 @@ __export(incidents_exports, {
 });
 import { Router as Router9 } from "express";
 import { z as z3 } from "zod";
-import { eq as eq9 } from "drizzle-orm";
+import { eq as eq11 } from "drizzle-orm";
 function toISOOrUndefined(input) {
   if (!input) return void 0;
   const d1 = new Date(input);
@@ -8782,15 +8960,15 @@ var init_incidents = __esm({
         let assetSnapshots = {};
         if (validatedData.assetId) {
           try {
-            const [asset] = await db2.select().from(assets).where(eq9(assets.id, validatedData.assetId)).limit(1);
+            const [asset] = await db3.select().from(assets).where(eq11(assets.id, validatedData.assetId)).limit(1);
             if (asset) {
               let manufacturerData = null;
               let modelData = null;
               if (asset.manufacturerId) {
-                [manufacturerData] = await db2.select().from(manufacturers).where(eq9(manufacturers.id, asset.manufacturerId)).limit(1);
+                [manufacturerData] = await db3.select().from(manufacturers).where(eq11(manufacturers.id, asset.manufacturerId)).limit(1);
               }
               if (asset.modelId) {
-                [modelData] = await db2.select().from(models).where(eq9(models.id, asset.modelId)).limit(1);
+                [modelData] = await db3.select().from(models).where(eq11(models.id, asset.modelId)).limit(1);
               }
               assetSnapshots = {
                 assetId: validatedData.assetId,
@@ -9636,7 +9814,7 @@ var universal_evidence_analyzer_exports = {};
 __export(universal_evidence_analyzer_exports, {
   UniversalEvidenceAnalyzer: () => UniversalEvidenceAnalyzer
 });
-import * as fs4 from "fs";
+import * as fs3 from "fs";
 import { spawn } from "child_process";
 import * as mime from "mime-types";
 var UniversalEvidenceAnalyzer;
@@ -9674,7 +9852,7 @@ var init_universal_evidence_analyzer = __esm({
           } else {
             analysisEngine = "ai-text";
             console.log(`[UNIVERSAL EVIDENCE] Unknown file type, defaulting to AI/GPT text analysis`);
-            const textContent = fs4.readFileSync(filePath, "utf-8");
+            const textContent = fs3.readFileSync(filePath, "utf-8");
             const aiResult = await this.analyzeTextWithAI(textContent, fileName, equipmentContext);
             parsedData = aiResult.data;
             adequacyScore = aiResult.confidence;
@@ -9884,7 +10062,7 @@ Format response as JSON:
       static async analyzeVisualWithAI(filePath, fileName, equipmentContext) {
         try {
           const { DynamicAIConfig: DynamicAIConfig2 } = await Promise.resolve().then(() => (init_dynamic_ai_config(), dynamic_ai_config_exports));
-          const fileBuffer = fs4.readFileSync(filePath);
+          const fileBuffer = fs3.readFileSync(filePath);
           const base64Data = fileBuffer.toString("base64");
           const mimeType = mime.lookup(fileName) || "application/octet-stream";
           const visionPrompt = `
@@ -10599,8 +10777,8 @@ var init_universal_human_review_engine = __esm({
       static async calculateReviewSessionStatus(incidentId, stage) {
         try {
           const { DatabaseInvestigationStorage: DatabaseInvestigationStorage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
-          const storage2 = new DatabaseInvestigationStorage2();
-          const incident = await storage2.getIncident(incidentId);
+          const storage = new DatabaseInvestigationStorage2();
+          const incident = await storage.getIncident(incidentId);
           const uploadedFiles = incident?.evidenceFiles || [];
           const reviewSession = {
             incidentId,
@@ -11008,7 +11186,7 @@ import express2 from "express";
 // server/routes.ts
 init_storage();
 import { createServer } from "http";
-import * as fs5 from "fs";
+import * as fs4 from "fs";
 import * as path2 from "path";
 
 // server/investigation-engine.ts
@@ -12415,15 +12593,15 @@ import { Router } from "express";
 // src/services/workflow_service.ts
 init_connection();
 init_schema();
-init_config();
-import { eq as eq3 } from "drizzle-orm";
+init_config2();
+import { eq as eq5 } from "drizzle-orm";
 
 // src/services/notification_service.ts
 init_connection();
 init_schema();
-init_config();
+init_config2();
 import * as nodemailer from "nodemailer";
-import { eq as eq2, and as and2 } from "drizzle-orm";
+import { eq as eq4, and as and3 } from "drizzle-orm";
 var NotificationService = class {
   transporter = null;
   constructor() {
@@ -12456,7 +12634,7 @@ var NotificationService = class {
       status: "queued",
       scheduledFor: scheduledFor || /* @__PURE__ */ new Date()
     };
-    const [notification] = await db2.insert(notifications).values(notificationData).returning();
+    const [notification] = await db3.insert(notifications).values(notificationData).returning();
     console.log(`[NOTIFICATION_SERVICE] Scheduled ${channel} notification for workflow ${workflowId}`);
     return notification;
   }
@@ -12485,9 +12663,9 @@ var NotificationService = class {
    * Preview notifications without sending (dry-run)
    */
   async previewNotifications(workflowId) {
-    const workflowNotifications = await db2.select().from(notifications).where(and2(
-      eq2(notifications.workflowId, workflowId),
-      eq2(notifications.status, "queued")
+    const workflowNotifications = await db3.select().from(notifications).where(and3(
+      eq4(notifications.workflowId, workflowId),
+      eq4(notifications.status, "queued")
     ));
     const previews = [];
     for (const notification of workflowNotifications) {
@@ -12602,25 +12780,25 @@ Please ensure all tasks are completed on time.`
    * Send queued notifications (called by scheduler)
    */
   async processQueuedNotifications() {
-    const queuedNotifications = await db2.select().from(notifications).where(and2(
-      eq2(notifications.status, "queued")
+    const queuedNotifications = await db3.select().from(notifications).where(and3(
+      eq4(notifications.status, "queued")
     ));
     let sent = 0;
     let failed = 0;
     for (const notification of queuedNotifications) {
       try {
         await this.sendNotification(notification);
-        await db2.update(notifications).set({
+        await db3.update(notifications).set({
           status: "sent",
           sentAt: /* @__PURE__ */ new Date()
-        }).where(eq2(notifications.id, notification.id));
+        }).where(eq4(notifications.id, notification.id));
         sent++;
       } catch (error) {
         console.error(`[NOTIFICATION_SERVICE] Failed to send notification ${notification.id}:`, error);
-        await db2.update(notifications).set({
+        await db3.update(notifications).set({
           status: "failed",
           error: error instanceof Error ? error.message : "Unknown error"
-        }).where(eq2(notifications.id, notification.id));
+        }).where(eq4(notifications.id, notification.id));
         failed++;
       }
     }
@@ -12691,8 +12869,8 @@ Please ensure all tasks are completed on time.`
    * Get notification statistics
    */
   async getNotificationStats(workflowId) {
-    let baseQuery = db2.select().from(notifications);
-    const allNotifications = workflowId ? await baseQuery.where(eq2(notifications.workflowId, workflowId)) : await baseQuery;
+    let baseQuery = db3.select().from(notifications);
+    const allNotifications = workflowId ? await baseQuery.where(eq4(notifications.workflowId, workflowId)) : await baseQuery;
     return {
       total: allNotifications.length,
       sent: allNotifications.filter((n) => n.status === "sent").length,
@@ -12704,7 +12882,7 @@ Please ensure all tasks are completed on time.`
 var notificationService = new NotificationService();
 
 // src/services/queue_service.ts
-init_config();
+init_config2();
 import { Queue, Worker } from "bullmq";
 var QueueService = class {
   milestoneQueue;
@@ -12714,6 +12892,10 @@ var QueueService = class {
   constructor() {
     this.notificationService = new NotificationService();
     try {
+      if (!Config.REDIS_URL && process.env.NODE_ENV === "development") {
+        console.log("[QUEUE] Redis not configured - running without queue services");
+        return;
+      }
       const redisConfig = Config.REDIS_URL ? { url: Config.REDIS_URL } : { host: "localhost", port: 6379 };
       this.milestoneQueue = new Queue("milestone-reminders", {
         connection: redisConfig,
@@ -12969,19 +13151,19 @@ var WorkflowService = class {
   async initiateWorkflow(data) {
     const workflowId = nanoid2();
     console.log(`[WORKFLOW_SERVICE] Initiating workflow ${workflowId} for incident ${data.incidentId}`);
-    const [incident] = await db2.select().from(incidents).where(eq3(incidents.id, data.incidentId)).limit(1);
+    const [incident] = await db3.select().from(incidents).where(eq5(incidents.id, data.incidentId)).limit(1);
     if (!incident) {
       throw new Error(`Incident ${data.incidentId} not found`);
     }
     const dueAt = /* @__PURE__ */ new Date();
     dueAt.setHours(dueAt.getHours() + Config.SLA_PROFILE_STANDARD_HOURS);
     if (data.observedSymptoms) {
-      await db2.update(incidents).set({
+      await db3.update(incidents).set({
         symptomDescription: data.observedSymptoms,
         currentStep: 8,
         workflowStatus: "workflow_initiated",
         updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq3(incidents.id, data.incidentId));
+      }).where(eq5(incidents.id, data.incidentId));
     }
     let approval = null;
     if (data.requiresApproval) {
@@ -12992,7 +13174,7 @@ var WorkflowService = class {
         requiredBy: dueAt,
         requestedAt: /* @__PURE__ */ new Date()
       };
-      const [newApproval] = await db2.insert(approvals).values(approvalData).returning();
+      const [newApproval] = await db3.insert(approvals).values(approvalData).returning();
       approval = {
         id: newApproval.id,
         required: true,
@@ -13079,12 +13261,12 @@ var WorkflowService = class {
    */
   async approveWorkflow(workflowId, decision, comment) {
     console.log(`[WORKFLOW_SERVICE] ${decision} workflow ${workflowId}`);
-    const [approval] = await db2.update(approvals).set({
+    const [approval] = await db3.update(approvals).set({
       status: decision,
       comment,
       approvedAt: /* @__PURE__ */ new Date(),
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq3(approvals.workflowId, workflowId)).returning();
+    }).where(eq5(approvals.workflowId, workflowId)).returning();
     if (!approval) {
       throw new Error(`Approval for workflow ${workflowId} not found`);
     }
@@ -13214,7 +13396,7 @@ var evidence_default = router3;
 // src/services/scheduler.ts
 init_connection();
 init_schema();
-import { eq as eq4, and as and3 } from "drizzle-orm";
+import { eq as eq6, and as and4 } from "drizzle-orm";
 var SchedulerService = class {
   jobs = /* @__PURE__ */ new Map();
   isRunning = false;
@@ -13262,7 +13444,7 @@ var SchedulerService = class {
     };
     try {
       console.log(`[SCHEDULER] Processing reminders at ${now.toISOString()}`);
-      const activeWorkflows = await db2.select().from(workflows).where(eq4(workflows.status, "active"));
+      const activeWorkflows = await db3.select().from(workflows).where(eq6(workflows.status, "active"));
       for (const workflow of activeWorkflows) {
         try {
           const milestoneResults = await this.checkMilestoneReminders(workflow, now);
@@ -13387,9 +13569,9 @@ var SchedulerService = class {
    * Check if a specific reminder type has been sent for a workflow
    */
   async hasReminderBeenSent(workflowId, reminderType) {
-    const notifications2 = await db2.select().from(notifications2).where(and3(
-      eq4(notifications2.workflowId, workflowId),
-      eq4(notifications2.channel, "milestone")
+    const notifications2 = await db3.select().from(notifications2).where(and4(
+      eq6(notifications2.workflowId, workflowId),
+      eq6(notifications2.channel, "milestone")
     ));
     return notifications2.some((n) => {
       const payload = n.payload;
@@ -13400,9 +13582,9 @@ var SchedulerService = class {
    * Get the timestamp of the last SLA breach notification
    */
   async getLastSLABreachNotification(workflowId) {
-    const breachNotifications = await db2.select().from(notifications).where(and3(
-      eq4(notifications.workflowId, workflowId),
-      eq4(notifications.channel, "email")
+    const breachNotifications = await db3.select().from(notifications).where(and4(
+      eq6(notifications.workflowId, workflowId),
+      eq6(notifications.channel, "email")
     ));
     const slaBreachNotifications = breachNotifications.filter((n) => n.payload?.type === "sla_breach_warning").sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     return slaBreachNotifications.length > 0 ? slaBreachNotifications[0].createdAt : null;
@@ -13419,7 +13601,7 @@ var SchedulerService = class {
    */
   async getStats() {
     const now = /* @__PURE__ */ new Date();
-    const activeWorkflows = await db2.select().from(workflows).where(eq4(workflows.status, "active"));
+    const activeWorkflows = await db3.select().from(workflows).where(eq6(workflows.status, "active"));
     const overdueWorkflows = activeWorkflows.filter((w) => new Date(w.dueAt) < now);
     const upcomingDeadlines = activeWorkflows.filter((w) => {
       const dueAt = new Date(w.dueAt);
@@ -13445,7 +13627,7 @@ var SchedulerService = class {
 var schedulerService = new SchedulerService();
 
 // server/routes.ts
-init_config();
+init_config2();
 var upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 }
@@ -13453,6 +13635,12 @@ var upload = multer({
 });
 async function registerRoutes(app3) {
   console.log("[ROUTES] Starting registerRoutes function - CRITICAL DEBUG");
+  const { encryptSecret: encryptSecret2, decryptSecret: decryptSecret2 } = await Promise.resolve().then(() => (init_crypto_gcm(), crypto_gcm_exports));
+  const { getProviderTester: getProviderTester2 } = await Promise.resolve().then(() => (init_ai_provider_testers(), ai_provider_testers_exports));
+  const { aiProviders: aiProviders2, users: users2, roles: roles2, userRoles: userRoles2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+  const { eq: eq12, and: and9, isNull, sql: sql4 } = await import("drizzle-orm");
+  const { db: db4 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const { hashPassword: hashPassword2, getUserByEmail: getUserByEmail2, logAuditEvent: logAuditEvent2, requireAuth: requireAuthFromRbac, inviteRateLimit: inviteRateLimit2 } = await Promise.resolve().then(() => (init_rbac_middleware(), rbac_middleware_exports));
   app3.get("/api/ai/providers", (_req, res) => {
     res.status(410).json({ error: "Deprecated. Use /api/admin/ai-settings." });
   });
@@ -13465,74 +13653,141 @@ async function registerRoutes(app3) {
   app3.delete("/api/ai/providers*", (_req, res) => {
     res.status(410).json({ error: "Deprecated. Use /api/admin/ai-settings." });
   });
+  app3.get("/api/admin/session-debug", (req, res) => {
+    res.json({
+      hasSession: !!req.session,
+      user: req.session?.user || null,
+      cookieNames: Object.keys(req.cookies || {}),
+      sessionData: req.session || null
+    });
+  });
   const { router: aiSettingsRouter } = await Promise.resolve().then(() => (init_aiSettings(), aiSettings_exports));
   app3.use(aiSettingsRouter);
   app3.use("/api/admin/ai-settings", aiDebugMiddleware.middleware());
-  const { encryptSecret: encryptSecret2, decryptSecret: decryptSecret2 } = await Promise.resolve().then(() => (init_crypto_gcm(), crypto_gcm_exports));
-  const { getProviderTester: getProviderTester2 } = await Promise.resolve().then(() => (init_ai_provider_testers(), ai_provider_testers_exports));
-  const { aiProviders: aiProviders2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-  const { eq: eq10, and: and8, isNull } = await import("drizzle-orm");
-  const { db: db3 } = await Promise.resolve().then(() => (init_db(), db_exports));
-  app3.post("/api/admin/ai/providers", requireAdmin, async (req, res) => {
+  app3.post("/api/admin/ai/providers", allowWhenBootstrapping, requireAdmin, async (req, res) => {
     try {
-      const { provider, modelId, apiKey, setActive } = req.body;
-      if (!provider || !modelId || !apiKey) {
-        return res.status(400).json({ message: "Provider, modelId, and apiKey are required" });
-      }
-      const encrypted = encryptSecret2(apiKey);
+      const { provider, modelId, apiKey, setActive } = req.body ?? {};
+      if (!provider || !modelId || !apiKey)
+        return res.status(400).json({ code: "MISSING_FIELDS", message: "provider, modelId, apiKey are required" });
+      const p = String(provider).trim().toLowerCase();
+      const m = String(modelId).trim();
+      const enc = encryptSecret2(String(apiKey));
       if (setActive) {
-        await db3.update(aiProviders2).set({ active: false, updatedAt: /* @__PURE__ */ new Date() }).where(isNull(aiProviders2.deletedAt));
+        await db4.update(aiProviders2).set({ active: false, updatedAt: /* @__PURE__ */ new Date() });
       }
-      const [newProvider] = await db3.insert(aiProviders2).values({
-        provider,
-        modelId,
-        keyCiphertextB64: encrypted.keyCiphertextB64,
-        keyIvB64: encrypted.keyIvB64,
-        keyTagB64: encrypted.keyTagB64,
-        active: setActive || false,
-        createdBy: req.user?.id || "admin"
-      }).returning({
-        id: aiProviders2.id,
-        provider: aiProviders2.provider,
-        modelId: aiProviders2.modelId,
-        active: aiProviders2.active
-      });
-      console.log(`[SECURE AI] Created provider ${provider}/${modelId} for user ${req.user?.id}`);
-      res.json({
-        ...newProvider,
+      const [row] = await db4.insert(aiProviders2).values({
+        provider: p,
+        modelId: m,
+        // maps to model_id
+        keyCiphertextB64: enc.keyCiphertextB64,
+        // -> key_ciphertext_b64
+        keyIvB64: enc.keyIvB64,
+        // -> key_iv_b64
+        keyTagB64: enc.keyTagB64,
+        // -> key_tag_b64
+        active: !!setActive,
+        // -> is_active
+        createdBy: req.session.user?.email || "dev@local"
+        // created_by (NOT NULL safe in dev)
+      }).returning({ id: aiProviders2.id });
+      if (setActive) {
+        const { sql: sql5 } = await import("drizzle-orm");
+        await db4.execute(sql5`
+          update ai_providers set is_active=false where id <> ${row.id}
+        `);
+        await db4.execute(sql5`update ai_providers set is_active=true where id=${row.id}`);
+      }
+      return res.status(201).json({
+        id: row.id,
+        provider: p,
+        modelId: m,
+        active: !!setActive,
         hasKey: true
       });
-    } catch (error) {
-      console.error("[SECURE AI] Error creating provider:", error);
-      res.status(500).json({ message: "Failed to create AI provider" });
+    } catch (e) {
+      const msg = String(e?.message || e);
+      if (msg.includes('relation "ai_providers" does not exist'))
+        return res.status(500).json({ code: "MIGRATION_MISSING", message: "Run DB migration for ai_providers" });
+      if (e.code === "23505" || msg.includes("unique"))
+        return res.status(409).json({ code: "DUPLICATE_PROVIDER_MODEL", message: "Provider+Model already exists" });
+      if (msg.includes("null value in column") && msg.includes("created_by"))
+        return res.status(400).json({ code: "CREATED_BY_REQUIRED", message: "created_by missing" });
+      if (msg.includes("Invalid key length"))
+        return res.status(500).json({ code: "CRYPTO_KEY_INVALID", message: "CRYPTO_KEY_32 must be 32 chars" });
+      if (msg.includes("Invalid IV length"))
+        return res.status(500).json({ code: "CRYPTO_IV_INVALID", message: "GCM IV must be 12 bytes" });
+      console.error("Create AI provider error:", e);
+      return res.status(500).json({ code: "SERVER_ERROR", message: msg });
     }
   });
-  app3.get("/api/admin/ai/providers", requireAdmin, async (req, res) => {
+  app3.get("/api/admin/ai/providers", allowWhenBootstrapping, requireAdmin, async (req, res) => {
     try {
-      const providers = await db3.select({
-        id: aiProviders2.id,
-        provider: aiProviders2.provider,
-        modelId: aiProviders2.modelId,
-        active: aiProviders2.active,
-        createdAt: aiProviders2.createdAt,
-        updatedAt: aiProviders2.updatedAt
-      }).from(aiProviders2).where(isNull(aiProviders2.deletedAt)).orderBy(aiProviders2.createdAt);
-      const providersWithFlag = providers.map((p) => ({
-        ...p,
-        hasKey: true
-        // All providers in this table have encrypted keys
-      }));
-      res.json(providersWithFlag);
+      const { sql: sql5 } = await import("drizzle-orm");
+      const result = await db4.execute(sql5`
+        select id, provider, model_id as "modelId", is_active as "active",
+               (key_ciphertext_b64 is not null) as "hasKey",
+               created_at as "createdAt", updated_at as "updatedAt"
+        from ai_providers 
+        where deleted_at is null 
+        order by created_at desc
+      `);
+      res.json(result.rows);
+    } catch (e) {
+      return res.status(500).json({ code: "SERVER_ERROR", message: String(e?.message || e) });
+    }
+  });
+  app3.delete("/api/admin/ai/providers/:id", allowWhenBootstrapping, requireAdmin, async (req, res) => {
+    try {
+      const providerId = parseInt(req.params.id);
+      if (isNaN(providerId)) {
+        return res.status(400).json({ code: "INVALID_ID", message: "Provider ID must be a number" });
+      }
+      const { sql: sql5 } = await import("drizzle-orm");
+      const existingResult = await db4.execute(sql5`
+        select id, is_active from ai_providers 
+        where id = ${providerId} and deleted_at is null
+      `);
+      if (existingResult.rows.length === 0) {
+        return res.status(404).json({ code: "NOT_FOUND", message: "Provider not found or already deleted" });
+      }
+      const wasActive = existingResult.rows[0].is_active;
+      await db4.execute(sql5`
+        update ai_providers 
+        set deleted_at = now(), is_active = false 
+        where id = ${providerId}
+      `);
+      let reassignedActiveId = null;
+      if (wasActive) {
+        const candidateResult = await db4.execute(sql5`
+          select id from ai_providers 
+          where deleted_at is null 
+          order by created_at desc 
+          limit 1
+        `);
+        if (candidateResult.rows.length > 0) {
+          reassignedActiveId = candidateResult.rows[0].id;
+          await db4.execute(sql5`
+            update ai_providers 
+            set is_active = true 
+            where id = ${reassignedActiveId}
+          `);
+        }
+      }
+      res.json({
+        ok: true,
+        reassignedActiveId: reassignedActiveId || void 0
+      });
     } catch (error) {
-      console.error("[SECURE AI] Error retrieving providers:", error);
-      res.status(500).json({ message: "Failed to retrieve AI providers" });
+      console.error("[AI-PROVIDERS] Delete error:", error);
+      const msg = error instanceof Error ? error.message : String(error);
+      return res.status(500).json({ code: "SERVER_ERROR", message: msg });
     }
   });
   app3.post("/api/admin/ai/providers/:id/test", requireAdmin, async (req, res) => {
     try {
       const providerId = parseInt(req.params.id);
-      const [provider] = await db3.select().from(aiProviders2).where(and8(
-        eq10(aiProviders2.id, providerId),
+      const [provider] = await db4.select().from(aiProviders2).where(and9(
+        eq12(aiProviders2.id, providerId),
         isNull(aiProviders2.deletedAt)
       ));
       if (!provider) {
@@ -13574,11 +13829,11 @@ async function registerRoutes(app3) {
         updateData.keyTagB64 = encrypted.keyTagB64;
       }
       if (setActive) {
-        await db3.update(aiProviders2).set({ active: false, updatedAt: /* @__PURE__ */ new Date() }).where(isNull(aiProviders2.deletedAt));
+        await db4.update(aiProviders2).set({ active: false, updatedAt: /* @__PURE__ */ new Date() }).where(isNull(aiProviders2.deletedAt));
         updateData.active = true;
       }
-      const [updatedProvider] = await db3.update(aiProviders2).set(updateData).where(and8(
-        eq10(aiProviders2.id, providerId),
+      const [updatedProvider] = await db4.update(aiProviders2).set(updateData).where(and9(
+        eq12(aiProviders2.id, providerId),
         isNull(aiProviders2.deletedAt)
       )).returning({
         id: aiProviders2.id,
@@ -13596,21 +13851,6 @@ async function registerRoutes(app3) {
     } catch (error) {
       console.error("[SECURE AI] Error updating provider:", error);
       res.status(500).json({ message: "Failed to update AI provider" });
-    }
-  });
-  app3.delete("/api/admin/ai/providers/:id", requireAdmin, async (req, res) => {
-    try {
-      const providerId = parseInt(req.params.id);
-      await db3.update(aiProviders2).set({
-        deletedAt: /* @__PURE__ */ new Date(),
-        active: false,
-        updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq10(aiProviders2.id, providerId));
-      console.log(`[SECURE AI] Soft-deleted provider ${providerId}`);
-      res.json({ message: "Provider deleted successfully" });
-    } catch (error) {
-      console.error("[SECURE AI] Error deleting provider:", error);
-      res.status(500).json({ message: "Failed to delete AI provider" });
     }
   });
   const { APP_VERSION: APP_VERSION2, APP_BUILT_AT: APP_BUILT_AT2 } = await Promise.resolve().then(() => (init_version(), version_exports));
@@ -14821,7 +15061,7 @@ async function registerRoutes(app3) {
   app3.get("/api/evidence-library/export/csv", async (req, res) => {
     console.log("[ROUTES] Evidence library CSV export route accessed - Universal Protocol Standard compliant");
     try {
-      const evidenceItems2 = await storage.getAllEvidenceLibrary();
+      const evidenceItems2 = await investigationStorage.getAllEvidenceLibrary();
       const headers = [
         "Equipment Group",
         "Equipment Type",
@@ -16230,13 +16470,13 @@ Recent Changes/Context: ${incident.initialContextualFactors}`;
   });
   app3.get("/api/ai/providers", async (req, res) => {
     try {
-      const { db: db4 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { db: db5 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { aiProviders: aiProviders3 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const providers = await db4.select({
+      const providers = await db5.select({
         id: aiProviders3.id,
         provider: aiProviders3.provider,
         modelId: aiProviders3.modelId,
-        isActive: aiProviders3.isActive,
+        active: aiProviders3.active,
         createdAt: aiProviders3.createdAt,
         updatedAt: aiProviders3.updatedAt
       }).from(aiProviders3).orderBy(aiProviders3.createdAt);
@@ -16259,38 +16499,44 @@ Recent Changes/Context: ${incident.initialContextualFactors}`;
       if (!api_key || !api_key.trim()) {
         return res.status(400).json({ message: "API Key is required" });
       }
-      const { db: db4 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { db: db5 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { aiProviders: aiProviders3 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
       const { AIService: AIService2 } = await Promise.resolve().then(() => (init_ai_service(), ai_service_exports));
       const encryptedKey = AIService2.encrypt(api_key);
       if (is_active) {
-        await db4.transaction(async (tx) => {
-          await tx.update(aiProviders3).set({ isActive: false, updatedAt: /* @__PURE__ */ new Date() });
+        await db5.transaction(async (tx) => {
+          await tx.update(aiProviders3).set({ active: false, updatedAt: /* @__PURE__ */ new Date() });
           const [newProvider] = await tx.insert(aiProviders3).values({
             provider: provider.trim(),
             modelId: model_id.trim(),
-            apiKeyEnc: encryptedKey,
-            isActive: true
+            keyCiphertextB64: encryptedKey.keyCiphertextB64 || encryptedKey,
+            keyIvB64: encryptedKey.keyIvB64 || "",
+            keyTagB64: encryptedKey.keyTagB64 || "",
+            active: true,
+            createdBy: "system"
           }).returning({
             id: aiProviders3.id,
             provider: aiProviders3.provider,
             modelId: aiProviders3.modelId,
-            isActive: aiProviders3.isActive,
+            active: aiProviders3.active,
             createdAt: aiProviders3.createdAt
           });
           res.json(newProvider);
         });
       } else {
-        const [newProvider] = await db4.insert(aiProviders3).values({
+        const [newProvider] = await db5.insert(aiProviders3).values({
           provider: provider.trim(),
           modelId: model_id.trim(),
-          apiKeyEnc: encryptedKey,
-          isActive: false
+          keyCiphertextB64: encryptedKey.keyCiphertextB64 || encryptedKey,
+          keyIvB64: encryptedKey.keyIvB64 || "",
+          keyTagB64: encryptedKey.keyTagB64 || "",
+          active: false,
+          createdBy: "system"
         }).returning({
           id: aiProviders3.id,
           provider: aiProviders3.provider,
           modelId: aiProviders3.modelId,
-          isActive: aiProviders3.isActive,
+          active: aiProviders3.active,
           createdAt: aiProviders3.createdAt
         });
         res.json(newProvider);
@@ -16305,25 +16551,26 @@ Recent Changes/Context: ${incident.initialContextualFactors}`;
     try {
       const { id } = req.params;
       const { provider, model_id, api_key, is_active } = req.body;
-      const { db: db4 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { db: db5 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { aiProviders: aiProviders3 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq11 } = await import("drizzle-orm");
+      const { eq: eq13 } = await import("drizzle-orm");
       const updateData = { updatedAt: /* @__PURE__ */ new Date() };
       if (provider !== void 0) updateData.provider = provider.trim();
       if (model_id !== void 0) updateData.modelId = model_id.trim();
       if (is_active !== void 0) updateData.isActive = is_active;
       if (api_key && api_key.trim()) {
         const { AIService: AIService2 } = await Promise.resolve().then(() => (init_ai_service(), ai_service_exports));
-        updateData.apiKeyEnc = AIService2.encrypt(api_key.trim());
+        const encrypted = AIService2.encrypt(api_key.trim());
+        updateData.keyCiphertextB64 = encrypted;
       }
       if (is_active) {
-        await db4.transaction(async (tx) => {
-          await tx.update(aiProviders3).set({ isActive: false, updatedAt: /* @__PURE__ */ new Date() });
-          const [updatedProvider] = await tx.update(aiProviders3).set(updateData).where(eq11(aiProviders3.id, parseInt(id))).returning({
+        await db5.transaction(async (tx) => {
+          await tx.update(aiProviders3).set({ active: false, updatedAt: /* @__PURE__ */ new Date() });
+          const [updatedProvider] = await tx.update(aiProviders3).set(updateData).where(eq13(aiProviders3.id, parseInt(id))).returning({
             id: aiProviders3.id,
             provider: aiProviders3.provider,
             modelId: aiProviders3.modelId,
-            isActive: aiProviders3.isActive,
+            active: aiProviders3.active,
             updatedAt: aiProviders3.updatedAt
           });
           if (!updatedProvider) {
@@ -16332,11 +16579,11 @@ Recent Changes/Context: ${incident.initialContextualFactors}`;
           res.json(updatedProvider);
         });
       } else {
-        const [updatedProvider] = await db4.update(aiProviders3).set(updateData).where(eq11(aiProviders3.id, parseInt(id))).returning({
+        const [updatedProvider] = await db5.update(aiProviders3).set(updateData).where(eq13(aiProviders3.id, parseInt(id))).returning({
           id: aiProviders3.id,
           provider: aiProviders3.provider,
           modelId: aiProviders3.modelId,
-          isActive: aiProviders3.isActive,
+          active: aiProviders3.active,
           updatedAt: aiProviders3.updatedAt
         });
         if (!updatedProvider) {
@@ -16353,10 +16600,10 @@ Recent Changes/Context: ${incident.initialContextualFactors}`;
   app3.delete("/api/ai/providers/:id", async (req, res) => {
     try {
       const { id } = req.params;
-      const { db: db4 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { db: db5 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { aiProviders: aiProviders3 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq11 } = await import("drizzle-orm");
-      const deletedProvider = await db4.delete(aiProviders3).where(eq11(aiProviders3.id, parseInt(id))).returning();
+      const { eq: eq13 } = await import("drizzle-orm");
+      const deletedProvider = await db5.delete(aiProviders3).where(eq13(aiProviders3.id, parseInt(id))).returning();
       if (deletedProvider.length === 0) {
         return res.status(404).json({ message: "Provider not found" });
       }
@@ -16370,16 +16617,16 @@ Recent Changes/Context: ${incident.initialContextualFactors}`;
   app3.post("/api/ai/providers/:id/activate", async (req, res) => {
     try {
       const { id } = req.params;
-      const { db: db4 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { db: db5 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { aiProviders: aiProviders3 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq11 } = await import("drizzle-orm");
-      await db4.transaction(async (tx) => {
-        await tx.update(aiProviders3).set({ isActive: false, updatedAt: /* @__PURE__ */ new Date() });
-        const [activatedProvider] = await tx.update(aiProviders3).set({ isActive: true, updatedAt: /* @__PURE__ */ new Date() }).where(eq11(aiProviders3.id, parseInt(id))).returning({
+      const { eq: eq13 } = await import("drizzle-orm");
+      await db5.transaction(async (tx) => {
+        await tx.update(aiProviders3).set({ active: false, updatedAt: /* @__PURE__ */ new Date() });
+        const [activatedProvider] = await tx.update(aiProviders3).set({ active: true, updatedAt: /* @__PURE__ */ new Date() }).where(eq13(aiProviders3.id, parseInt(id))).returning({
           id: aiProviders3.id,
           provider: aiProviders3.provider,
           modelId: aiProviders3.modelId,
-          isActive: aiProviders3.isActive
+          active: aiProviders3.active
         });
         if (!activatedProvider) {
           return res.status(404).json({ message: "Provider not found" });
@@ -16395,15 +16642,15 @@ Recent Changes/Context: ${incident.initialContextualFactors}`;
   app3.post("/api/ai/providers/:id/test", async (req, res) => {
     try {
       const { id } = req.params;
-      const { db: db4 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { db: db5 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { aiProviders: aiProviders3 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq11 } = await import("drizzle-orm");
-      const [provider] = await db4.select().from(aiProviders3).where(eq11(aiProviders3.id, parseInt(id)));
+      const { eq: eq13 } = await import("drizzle-orm");
+      const [provider] = await db5.select().from(aiProviders3).where(eq13(aiProviders3.id, parseInt(id)));
       if (!provider) {
         return res.status(404).json({ ok: false, message: "Provider not found" });
       }
       const { AIService: AIService2 } = await Promise.resolve().then(() => (init_ai_service(), ai_service_exports));
-      const apiKey = AIService2.decrypt(provider.apiKeyEnc);
+      const apiKey = AIService2.decrypt(provider.keyCiphertextB64);
       const testResult = await AIService2.testApiKey(provider.provider, apiKey);
       res.json({
         ok: testResult.success,
@@ -16420,7 +16667,7 @@ Recent Changes/Context: ${incident.initialContextualFactors}`;
   });
   app3.get("/api/meta", async (req, res) => {
     try {
-      const { db: db4 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { db: db5 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { Pool: Pool2 } = await import("@neondatabase/serverless");
       const dbUrl = process.env.DATABASE_URL || "";
       const dbName = dbUrl.split("/").pop()?.split("?")[0] || "unknown";
@@ -16775,7 +17022,7 @@ Recent Changes/Context: ${incident.initialContextualFactors}`;
       const uniqueId = UniversalAIConfig.generateUUID();
       const fileExtension = path2.extname(file.originalname);
       const tempFilePath = path2.join(os.tmpdir(), `evidence_${incidentId}_${uniqueId}${fileExtension}`);
-      fs5.writeFileSync(tempFilePath, file.buffer);
+      fs4.writeFileSync(tempFilePath, file.buffer);
       try {
         const { UniversalEvidenceAnalyzer: UniversalEvidenceAnalyzer2 } = await Promise.resolve().then(() => (init_universal_evidence_analyzer(), universal_evidence_analyzer_exports));
         const equipmentContext = {
@@ -16880,7 +17127,7 @@ Recent Changes/Context: ${incident.initialContextualFactors}`;
         });
       } finally {
         try {
-          fs5.unlinkSync(tempFilePath);
+          fs4.unlinkSync(tempFilePath);
         } catch (cleanupError) {
           console.warn("[UNIVERSAL EVIDENCE] Temp file cleanup failed:", cleanupError);
         }
@@ -18401,7 +18648,7 @@ JSON array only:`;
     console.error("[AI Contributing Factors] Error:", error);
     return ["AI configuration required - Please configure AI provider in admin settings"];
   }
-  const requireAdmin3 = async (req, res, next) => {
+  const requireAdmin4 = async (req, res, next) => {
     try {
       if (!req.isAuthenticated() || !req.user) {
         return res.status(401).json({ message: "Authentication required" });
@@ -18424,7 +18671,7 @@ JSON array only:`;
       res.status(500).json({ message: "Authentication error" });
     }
   };
-  app.get("/api/admin/fault-reference-library", requireAdmin3, async (req, res) => {
+  app.get("/api/admin/fault-reference-library", requireAdmin4, async (req, res) => {
     try {
       const entries = await investigationStorage.getAllFaultReferenceLibrary();
       res.json(entries);
@@ -18433,7 +18680,7 @@ JSON array only:`;
       res.status(500).json({ message: "Failed to retrieve fault reference library" });
     }
   });
-  app.get("/api/admin/fault-reference-library/search", requireAdmin3, async (req, res) => {
+  app.get("/api/admin/fault-reference-library/search", requireAdmin4, async (req, res) => {
     try {
       const { q: searchTerm, evidenceType } = req.query;
       const entries = await investigationStorage.searchFaultReferenceLibrary(
@@ -18446,7 +18693,7 @@ JSON array only:`;
       res.status(500).json({ message: "Failed to search fault reference library" });
     }
   });
-  app.get("/api/admin/fault-reference-library/:id", requireAdmin3, async (req, res) => {
+  app.get("/api/admin/fault-reference-library/:id", requireAdmin4, async (req, res) => {
     try {
       const { id } = req.params;
       const entry = await investigationStorage.getFaultReferenceLibraryById(id);
@@ -18459,7 +18706,7 @@ JSON array only:`;
       res.status(500).json({ message: "Failed to retrieve fault reference library entry" });
     }
   });
-  app.post("/api/admin/fault-reference-library", requireAdmin3, async (req, res) => {
+  app.post("/api/admin/fault-reference-library", requireAdmin4, async (req, res) => {
     try {
       const validatedData = insertFaultReferenceLibrarySchema.parse(req.body);
       const entry = await investigationStorage.createFaultReferenceLibrary(validatedData);
@@ -18472,7 +18719,7 @@ JSON array only:`;
       res.status(500).json({ message: "Failed to create fault reference library entry" });
     }
   });
-  app.put("/api/admin/fault-reference-library/:id", requireAdmin3, async (req, res) => {
+  app.put("/api/admin/fault-reference-library/:id", requireAdmin4, async (req, res) => {
     try {
       const { id } = req.params;
       const validatedData = insertFaultReferenceLibrarySchema.partial().parse(req.body);
@@ -18486,7 +18733,7 @@ JSON array only:`;
       res.status(500).json({ message: "Failed to update fault reference library entry" });
     }
   });
-  app.delete("/api/admin/fault-reference-library/:id", requireAdmin3, async (req, res) => {
+  app.delete("/api/admin/fault-reference-library/:id", requireAdmin4, async (req, res) => {
     try {
       const { id } = req.params;
       await investigationStorage.deleteFaultReferenceLibrary(id);
@@ -18496,7 +18743,7 @@ JSON array only:`;
       res.status(500).json({ message: "Failed to delete fault reference library entry" });
     }
   });
-  app.get("/api/admin/fault-reference-library/export/csv", requireAdmin3, async (req, res) => {
+  app.get("/api/admin/fault-reference-library/export/csv", requireAdmin4, async (req, res) => {
     try {
       const entries = await investigationStorage.getAllFaultReferenceLibrary();
       const csvData = Papa.unparse(entries.map((entry) => ({
@@ -18520,7 +18767,7 @@ JSON array only:`;
       res.status(500).json({ message: "Failed to export fault reference library" });
     }
   });
-  app.get("/api/admin/fault-reference-library/export/excel", requireAdmin3, async (req, res) => {
+  app.get("/api/admin/fault-reference-library/export/excel", requireAdmin4, async (req, res) => {
     try {
       const entries = await investigationStorage.getAllFaultReferenceLibrary();
       const worksheet = XLSX.utils.json_to_sheet(entries.map((entry) => ({
@@ -18547,7 +18794,7 @@ JSON array only:`;
       res.status(500).json({ message: "Failed to export fault reference library" });
     }
   });
-  app.post("/api/admin/fault-reference-library/import", requireAdmin3, upload.single("file"), async (req, res) => {
+  app.post("/api/admin/fault-reference-library/import", requireAdmin4, upload.single("file"), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ message: "No file uploaded" });
@@ -19055,6 +19302,237 @@ JSON array only:`;
     }
   });
   console.log("[ROUTES] All taxonomy routes registered successfully");
+  app.get("/api/admin/test", (req, res) => {
+    res.json({ message: "Admin routes working!" });
+  });
+  console.log("[ROUTES] Test admin route registered");
+  try {
+    console.log("[ROUTES] Starting admin routes registration...");
+    const { getUserWithRoles: getUserWithRoles2, getUserByEmail: getUserByEmail2, hashPassword: hashPassword2, verifyPassword: verifyPassword2, logAuditEvent: logAuditEvent2, loginRateLimit: loginRateLimit2, inviteRateLimit: inviteRateLimit2, requireAuth: requireAuth2 } = await Promise.resolve().then(() => (init_rbac_middleware(), rbac_middleware_exports));
+    const { users: users2, roles: roles2, userRoles: userRoles2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { sql: sql4 } = await import("drizzle-orm");
+    console.log("[ROUTES] Admin imports successful");
+    console.log("[ROUTES] Registering authentication endpoints...");
+    app.post("/api/auth/login", loginRateLimit2, async (req, res) => {
+      try {
+        const { email, password } = req.body;
+        if (!email || !password) {
+          return res.status(400).json({ code: "MISSING_CREDENTIALS", message: "Email and password required" });
+        }
+        const user = await getUserByEmail2(email);
+        if (!user || !user.passwordHash) {
+          await logAuditEvent2("login_failed", void 0, "users", email, { reason: "user_not_found" });
+          return res.status(401).json({ code: "INVALID_CREDENTIALS", message: "Invalid email or password" });
+        }
+        const isValidPassword = await verifyPassword2(user.passwordHash, password);
+        if (!isValidPassword) {
+          await logAuditEvent2("login_failed", user.id, "users", user.id, { reason: "invalid_password" });
+          return res.status(401).json({ code: "INVALID_CREDENTIALS", message: "Invalid email or password" });
+        }
+        req.session.regenerate((err) => {
+          if (err) {
+            console.error("[AUTH] Session regeneration error:", err);
+            return res.status(500).json({ code: "SESSION_ERROR", message: "Failed to create session" });
+          }
+          req.session.user = {
+            id: user.id,
+            email: user.email,
+            roles: user.roles,
+            isActive: user.isActive
+          };
+          req.session.save(async (err2) => {
+            if (err2) {
+              console.error("[AUTH] Session save error:", err2);
+              return res.status(500).json({ code: "SESSION_ERROR", message: "Failed to save session" });
+            }
+            await logAuditEvent2("login_success", user.id, "users", user.id, { email });
+            res.json({
+              success: true,
+              user: {
+                id: user.id,
+                email: user.email,
+                roles: user.roles
+              }
+            });
+          });
+        });
+      } catch (error) {
+        console.error("[AUTH] Login error:", error);
+        res.status(500).json({ code: "SERVER_ERROR", message: "Login failed" });
+      }
+    });
+    app.post("/api/auth/logout", requireAuth2, async (req, res) => {
+      try {
+        const userId = req.session?.user?.id;
+        req.session.destroy((err) => {
+          if (err) {
+            console.error("[AUTH] Session destroy error:", err);
+            return res.status(500).json({ code: "SESSION_ERROR", message: "Failed to logout" });
+          }
+          if (userId) {
+            logAuditEvent2("logout", userId, "users", userId, {});
+          }
+          res.json({ success: true, message: "Logged out successfully" });
+        });
+      } catch (error) {
+        console.error("[AUTH] Logout error:", error);
+        res.status(500).json({ code: "SERVER_ERROR", message: "Logout failed" });
+      }
+    });
+    app.get("/api/admin/users", requireAdmin4, async (req, res) => {
+      try {
+        const result = await db.select({
+          id: users2.id,
+          email: users2.email,
+          firstName: users2.firstName,
+          lastName: users2.lastName,
+          isActive: users2.isActive,
+          emailVerifiedAt: users2.emailVerifiedAt,
+          createdAt: users2.createdAt,
+          roles: sql4`COALESCE(
+            json_agg(
+              json_build_object('id', r.id, 'name', r.name)
+            ) FILTER (WHERE r.id IS NOT NULL),
+            '[]'::json
+          )`.as("roles")
+        }).from(users2).leftJoin(userRoles2, eq(users2.id, userRoles2.userId)).leftJoin(roles2, eq(userRoles2.roleId, roles2.id)).groupBy(users2.id).orderBy(users2.createdAt);
+        res.json({ users: result });
+      } catch (error) {
+        console.error("[ADMIN] Error fetching users:", error);
+        res.status(500).json({ code: "SERVER_ERROR", message: "Failed to fetch users" });
+      }
+    });
+    app.post("/api/admin/users", requireAdmin4, inviteRateLimit2, async (req, res) => {
+      try {
+        const { email, firstName, lastName, password, roleIds = [] } = req.body;
+        if (!email || !password) {
+          return res.status(400).json({ code: "MISSING_FIELDS", message: "Email and password are required" });
+        }
+        const existingUser = await getUserByEmail2(email);
+        if (existingUser) {
+          return res.status(409).json({ code: "USER_EXISTS", message: "User with this email already exists" });
+        }
+        const passwordHash = await hashPassword2(password);
+        const [newUser] = await db.insert(users2).values({
+          email,
+          firstName: firstName || null,
+          lastName: lastName || null,
+          passwordHash,
+          active: true,
+          emailVerifiedAt: /* @__PURE__ */ new Date()
+          // Pre-verify admin-created users
+        }).returning({ id: users2.id });
+        if (roleIds.length > 0) {
+          const roleAssignments = roleIds.map((roleId) => ({
+            userId: newUser.id,
+            roleId
+          }));
+          await db.insert(userRoles2).values(roleAssignments);
+        }
+        await logAuditEvent2("user_created", req.session.user?.id, "users", newUser.id, {
+          email,
+          roleIds,
+          createdBy: req.session.user?.email
+        });
+        res.status(201).json({
+          success: true,
+          user: {
+            id: newUser.id,
+            email,
+            firstName,
+            lastName,
+            active: true
+          }
+        });
+      } catch (error) {
+        console.error("[ADMIN] Error creating user:", error);
+        res.status(500).json({ code: "SERVER_ERROR", message: "Failed to create user" });
+      }
+    });
+    app.put("/api/admin/users/:userId", requireAdmin4, async (req, res) => {
+      try {
+        const { userId } = req.params;
+        const { firstName, lastName, isActive, roleIds } = req.body;
+        const updateData = {};
+        if (firstName !== void 0) updateData.firstName = firstName;
+        if (lastName !== void 0) updateData.lastName = lastName;
+        if (isActive !== void 0) updateData.isActive = isActive;
+        if (Object.keys(updateData).length > 0) {
+          updateData.updatedAt = /* @__PURE__ */ new Date();
+          await db.update(users2).set(updateData).where(eq(users2.id, userId));
+        }
+        if (roleIds !== void 0) {
+          await db.delete(userRoles2).where(eq(userRoles2.userId, userId));
+          if (roleIds.length > 0) {
+            const roleAssignments = roleIds.map((roleId) => ({
+              userId,
+              roleId
+            }));
+            await db.insert(userRoles2).values(roleAssignments);
+          }
+        }
+        await logAuditEvent2("user_updated", req.session.user?.id, "users", userId, {
+          changes: updateData,
+          roleIds,
+          updatedBy: req.session.user?.email
+        });
+        res.json({ success: true, message: "User updated successfully" });
+      } catch (error) {
+        console.error("[ADMIN] Error updating user:", error);
+        res.status(500).json({ code: "SERVER_ERROR", message: "Failed to update user" });
+      }
+    });
+    app.delete("/api/admin/users/:userId", requireAdmin4, async (req, res) => {
+      try {
+        const { userId } = req.params;
+        if (userId === req.session.user?.id) {
+          return res.status(400).json({ code: "CANNOT_DELETE_SELF", message: "Cannot delete your own account" });
+        }
+        await db.delete(userRoles2).where(eq(userRoles2.userId, userId));
+        await db.delete(users2).where(eq(users2.id, userId));
+        await logAuditEvent2("user_deleted", req.session.user?.id, "users", userId, {
+          deletedBy: req.session.user?.email
+        });
+        res.json({ success: true, message: "User deleted successfully" });
+      } catch (error) {
+        console.error("[ADMIN] Error deleting user:", error);
+        res.status(500).json({ code: "SERVER_ERROR", message: "Failed to delete user" });
+      }
+    });
+    app.get("/api/admin/roles", requireAdmin4, async (req, res) => {
+      try {
+        const allRoles = await db.select().from(roles2).orderBy(roles2.name);
+        res.json({ roles: allRoles });
+      } catch (error) {
+        console.error("[ADMIN] Error fetching roles:", error);
+        res.status(500).json({ code: "SERVER_ERROR", message: "Failed to fetch roles" });
+      }
+    });
+    app.post("/api/admin/roles", requireAdmin4, async (req, res) => {
+      try {
+        const { name, description } = req.body;
+        if (!name) {
+          return res.status(400).json({ code: "MISSING_FIELDS", message: "Role name is required" });
+        }
+        const [newRole] = await db.insert(roles2).values({ name, description: description || null }).returning();
+        await logAuditEvent2("role_created", req.session.user?.id, "roles", String(newRole.id), {
+          name,
+          description,
+          createdBy: req.session.user?.email
+        });
+        res.status(201).json({ success: true, role: newRole });
+      } catch (error) {
+        console.error("[ADMIN] Error creating role:", error);
+        if (error.code === "23505") {
+          return res.status(409).json({ code: "ROLE_EXISTS", message: "Role with this name already exists" });
+        }
+        res.status(500).json({ code: "SERVER_ERROR", message: "Failed to create role" });
+      }
+    });
+    console.log("[ROUTES] Admin user management routes registered successfully");
+  } catch (error) {
+    console.error("[ROUTES] ERROR registering admin routes:", error);
+  }
   try {
     await validateRequiredConfig();
     console.log("[INCIDENT_MANAGEMENT] Configuration validation passed");
@@ -19085,7 +19563,7 @@ import { createServer as createServer2 } from "http";
 
 // server/vite.ts
 import express from "express";
-import fs6 from "fs";
+import fs5 from "fs";
 import path4 from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 
@@ -19165,7 +19643,7 @@ async function setupVite(app3, server) {
         "client",
         "index.html"
       );
-      let template = await fs6.promises.readFile(clientTemplate, "utf-8");
+      let template = await fs5.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid4()}"`
@@ -19180,71 +19658,191 @@ async function setupVite(app3, server) {
 }
 
 // server/index.ts
-init_universal_ai_config();
 init_crypto_key();
 init_rbac_middleware();
+init_config();
 import path5 from "path";
 import { fileURLToPath } from "url";
+import session from "express-session";
+import cors from "cors";
+import connectPgSimple from "connect-pg-simple";
 dotenv.config();
+if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
+  throw new Error("SESSION_SECRET missing or too short");
+}
+if (!process.env.SETUP_ADMIN_EMAIL) {
+  throw new Error("SETUP_ADMIN_EMAIL environment variable is required");
+}
+if (!process.env.SETUP_ADMIN_PASSWORD) {
+  throw new Error("SETUP_ADMIN_PASSWORD environment variable is required");
+}
 var __filename = fileURLToPath(import.meta.url);
 var __dirname = path5.dirname(__filename);
 loadCryptoKey();
 var app2 = express2();
-app2.use((req, res, next) => {
-  const contentType = req.headers["content-type"] || "";
-  if (contentType.includes("multipart/form-data") || req.path.includes("/import")) {
-    return next();
+app2.set("trust proxy", 1);
+app2.use(cors({
+  origin: true,
+  // Allow all origins for development
+  credentials: true,
+  // Required for session cookies
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "Accept"]
+}));
+var pgSession = connectPgSimple(session);
+app2.use(session({
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  proxy: true,
+  store: new pgSession({
+    conString: process.env.DATABASE_URL,
+    tableName: "sessions",
+    createTableIfMissing: true
+  }),
+  cookie: {
+    httpOnly: true,
+    secure: true,
+    // Required per specification
+    sameSite: "none",
+    // Required per specification for CORS
+    maxAge: 1e3 * 60 * 60 * 24 * 7
   }
-  return express2.json({ limit: "10mb" })(req, res, next);
-});
+}));
+app2.use(express2.json({ limit: "10mb" }));
 app2.use(express2.urlencoded({ extended: false }));
-app2.use((req, res, next) => {
-  if (process.env.CACHE_KILL_SWITCH === "1") {
-    res.set("Cache-Control", "no-store");
-    next();
-    return;
+var loginPageHandler = (req, res) => {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.end(`<!doctype html><html><body>
+  <h1>Admin Sign in</h1>
+  <form id="f"><input name="email" placeholder="Email"/><input name="password" type="password" placeholder="Password"/>
+  <button>Sign in</button><div id="m"></div></form>
+  <script>
+    f.onsubmit = async (e)=>{e.preventDefault();
+      const fd=new FormData(f);
+      const r=await fetch('/api/auth/login',{method:'POST',credentials:'include',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({email:fd.get('email'),password:fd.get('password'),
+          returnTo:new URLSearchParams(location.search).get('returnTo')})});
+      const j = await r.json(); if(r.ok) location.href=j.returnTo; else m.textContent='Login failed';
+    };
+  </script></body></html>`);
+};
+app2.get("/admin/login", loginPageHandler);
+app2.get("/admin/*", (req, res, next) => {
+  if (!req.session?.user) {
+    const rt = encodeURIComponent(req.originalUrl);
+    return res.redirect(302, `/admin/login?returnTo=${rt}`);
   }
-  const path6 = req.path;
-  if (path6 === "/" || path6 === "/index.html" || path6 === "/version.json" || path6.startsWith("/api/")) {
-    res.set("Cache-Control", "no-store");
-  } else if (path6.includes("assets/") && (path6.includes(".") && path6.match(/\.[a-f0-9]{8,}\./))) {
-    res.set("Cache-Control", "public, max-age=31536000, immutable");
-  } else {
-    res.set("Cache-Control", "no-store");
-  }
-  next();
+  return next();
 });
-app2.use((req, res, next) => {
-  const start = UniversalAIConfig.getPerformanceTime();
-  const path6 = req.path;
-  let capturedJsonResponse = void 0;
-  const originalResJson = res.json;
-  res.json = function(bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-  res.on("finish", () => {
-    const duration = UniversalAIConfig.getPerformanceTime() - start;
-    if (path6.startsWith("/api")) {
-      let logLine = `${req.method} ${path6} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "\u2026";
-      }
-      log(logLine);
+function requireAdmin3(req, res, next) {
+  if (req.session?.user?.roles?.includes("admin")) return next();
+  res.set("Cache-Control", "no-store");
+  return res.status(403).json({ error: "forbidden" });
+}
+app2.use("/api/admin", requireAdmin3);
+app2.get("/healthz", (_req, res) => res.status(200).send("ok"));
+app2.get("/version.json", (_req, res) => res.json({ build: process.env.BUILD_ID || "dev" }));
+app2.get("/api/auth/whoami", (req, res) => {
+  const user = req.session?.user;
+  if (!user) {
+    return res.json({ authenticated: false, roles: [], isAdmin: false });
+  }
+  const hasAdminRole = !!req.session?.user?.roles?.includes(ADMIN_ROLE_NAME);
+  res.json({
+    authenticated: true,
+    roles: user.roles || [],
+    isAdmin: hasAdminRole,
+    user: {
+      id: user.id,
+      email: user.email
     }
   });
-  next();
+});
+app2.post("/api/auth/login", loginRateLimit, async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ code: "MISSING_CREDENTIALS" });
+    }
+    const { getUserByEmail: getUserByEmail2, verifyPassword: verifyPassword2, getUserWithRoles: getUserWithRoles2 } = await Promise.resolve().then(() => (init_rbac_middleware(), rbac_middleware_exports));
+    const user = await getUserByEmail2(email.toLowerCase());
+    if (!user || !user.passwordHash) {
+      return res.status(401).json({ code: "INVALID_CREDENTIALS" });
+    }
+    const isValid = await verifyPassword2(user.passwordHash, password);
+    if (!isValid) {
+      return res.status(401).json({ code: "INVALID_CREDENTIALS" });
+    }
+    const userWithRoles = await getUserWithRoles2(user.id);
+    if (!userWithRoles || !userWithRoles.roles || userWithRoles.roles.length === 0) {
+      return res.status(403).json({ code: "NO_ROLES_ASSIGNED", message: "User has no roles assigned" });
+    }
+    req.session.user = {
+      id: user.id,
+      email: user.email,
+      roles: userWithRoles.roles
+    };
+    await new Promise((resolve, reject) => {
+      req.session.save((err) => {
+        if (err) reject(err);
+        else resolve(true);
+      });
+    });
+    let returnTo = req.body?.returnTo || DEFAULT_ADMIN_RETURN_URL;
+    if (typeof returnTo === "string" && returnTo.startsWith("/") && !returnTo.startsWith("//")) {
+    } else {
+      returnTo = DEFAULT_ADMIN_RETURN_URL;
+    }
+    res.json({ ok: true, returnTo });
+  } catch (error) {
+    console.error("[AUTH] Login error:", error);
+    res.status(500).json({ code: "SERVER_ERROR" });
+  }
+});
+app2.post("/api/auth/logout", (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      console.error("[AUTH] Logout error:", err);
+      return res.status(500).json({ code: "SESSION_ERROR" });
+    }
+    res.json({ ok: true });
+  });
+});
+app2.get("/api/admin/bootstrap", requireAdmin3, (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json({
+    features: ["ai_settings", "evidence_library", "taxonomy"]
+    // add whatever you want visible
+  });
+});
+app2.get("/api/admin/canary", requireAdmin3, (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json({ ok: true, now: (/* @__PURE__ */ new Date()).toISOString() });
+});
+app2.get("/api/me", (req, res) => {
+  res.set("Cache-Control", "no-store");
+  if (!req.session?.user) return res.status(401).json({ error: "unauthorized" });
+  return res.json({
+    id: req.session.user.id,
+    role: req.session.user.roles?.includes("admin") ? "admin" : "user"
+  });
 });
 (async () => {
+  console.log("[SERVER] Registering API routes directly after admin guards");
+  try {
+    await registerRoutes(app2);
+    console.log("[SERVER] registerRoutes completed successfully");
+  } catch (error) {
+    console.error("[SERVER] CRITICAL ERROR in registerRoutes:", error);
+    throw error;
+  }
   const forceBuiltMode = true;
   let server;
   if (app2.get("env") === "development" && !forceBuiltMode) {
     log("\u26A0\uFE0F  Using Vite dev server - API calls may be intercepted");
-    server = await registerRoutes(app2);
-    await setupVite(app2, server);
+    server = await setupVite(app2, server);
     app2.use((err, _req, res, _next) => {
       const status = err.status || err.statusCode || 500;
       const message = err.message || "Internal Server Error";
@@ -19253,74 +19851,27 @@ app2.use((req, res, next) => {
     });
   } else {
     log("\u{1F680} SERVING BUILT FRONTEND - Bypassing Vite middleware API interception");
-    console.log("[SERVER] Registering API routes directly to Express app");
-    app2.get("/api/test-direct", (req, res) => {
-      console.log("[SERVER] Direct test route hit");
-      res.json({ success: true, message: "Direct route working" });
-    });
-    try {
-      console.log("[SERVER] About to call registerRoutes");
-      await registerRoutes(app2);
-      console.log("[SERVER] registerRoutes completed successfully");
-    } catch (error) {
-      console.error("[SERVER] CRITICAL ERROR in registerRoutes:", error);
-      throw error;
-    }
     const publicPath = path5.resolve(process.cwd(), "dist/public");
-    app2.use((req, res, next) => {
-      if (req.path.startsWith("/api/")) {
-        return next();
-      }
-      return express2.static(publicPath, {
-        // Cache headers to prevent stale cache issues
-        setHeaders: (res2, filePath) => {
-          if (filePath.endsWith(".html")) {
-            res2.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-            res2.setHeader("Pragma", "no-cache");
-            res2.setHeader("Expires", "0");
-          } else {
-            res2.setHeader(
-              "Cache-Control",
-              "public, max-age=31536000, immutable"
-            );
-          }
+    app2.use(express2.static(publicPath, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith(".html")) {
+          res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+          res.setHeader("Pragma", "no-cache");
+          res.setHeader("Expires", "0");
+        } else {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
         }
-      })(req, res, next);
-    });
-    app2.get(["/", "/index.html"], (_req, res) => {
-      res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+      }
+    }));
+    app2.get("*", (_req, res) => {
       res.sendFile(path5.join(publicPath, "index.html"));
     });
-    app2.get("*", (req, res, next) => {
-      if (req.path.startsWith("/api/")) {
-        console.log(`[Server] CRITICAL: API route ${req.path} reached catch-all - check route registration`);
-        return res.status(404).json({ error: "API endpoint not found", path: req.path });
-      }
-      const indexPath = path5.resolve(publicPath, "index.html");
-      res.set("Cache-Control", "no-store, no-cache, must-revalidate");
-      res.sendFile(indexPath);
-    });
     server = createServer2(app2);
-    app2.use((err, _req, res, _next) => {
-      const status = err.status || err.statusCode || 500;
-      const message = err.message || "Internal Server Error";
-      res.status(status).json({ message });
-      throw err;
-    });
     log("\u2705 Built frontend active - API calls now reach backend directly");
   }
   const port = parseInt(process.env.PORT || "5000", 10);
   console.log("\u{1F512} Universal Protocol Standard enforcement active via Git hooks and CI/CD");
-  if (process.env.NODE_ENV !== "production" && process.env.ENABLE_DEV_AUTH === "1") {
-    await createTestAdminUser();
-    app2.use((req, _res, next) => {
-      if (!req.headers["x-user-id"]) {
-        req.headers["x-user-id"] = process.env.DEV_USER_ID || "test-admin";
-      }
-      next();
-    });
-    console.log("\u{1F527} Dev auth enabled with user:", process.env.DEV_USER_ID || "test-admin");
-  }
+  console.log("\u{1F512} Production authentication system active");
   server.listen(port, "0.0.0.0", () => {
     log(`serving on port ${port}`);
   });

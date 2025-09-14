@@ -360,9 +360,12 @@ export default function EvidenceLibraryAdmin() {
 
   // Export library mutation
   const exportMutation = useMutation({
-    mutationFn: async () => { const response = await api('/api/evidence-library/admin/export', {
-      headers: { 'x-admin-key': 'admin123' }
-    }),
+    mutationFn: async () => { 
+      const response = await api('/api/evidence-library/admin/export', {
+        headers: { 'x-admin-key': 'admin123' }
+      });
+      return response.json();
+    },
     onSuccess: (data) => {
       // Create download link
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
