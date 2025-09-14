@@ -2,28 +2,20 @@ import { redirect } from 'react-router-dom';
 import { apiRaw } from '../lib/api';
 
 export async function adminLoader() {
-  console.log('[ADMIN_LOADER] Starting authentication check');
-  
-  // 1) Auth check using correct endpoint
-  const meRes = await apiRaw('/api/auth/whoami');
-  const me = await meRes.json();
-  
-  console.log('[ADMIN_LOADER] Auth response:', me);
-  
-  // Check if authenticated and admin
-  if (!me.authenticated || !me.isAdmin) {
-    console.log('[ADMIN_LOADER] Not authenticated/admin, redirecting to login');
-    throw redirect('/admin/login');
-  }
+  console.log('[ADMIN_LOADER] start');                // CANARY
+  const meRes = await apiRaw('/api/me');
+  console.log('[ADMIN_LOADER] /api/me', meRes.status);
 
-  // 2) Bootstrap features *before* any admin child mounts
+  if (meRes.status === 401 || meRes.status === 403) throw redirect('/login');
+  const me = await meRes.json();
+  if (me.role !== 'admin') throw redirect('/login');
+
   const bootRes = await apiRaw('/api/admin/bootstrap');
-  if (bootRes.status === 401 || bootRes.status === 403) {
-    console.log('[ADMIN_LOADER] Bootstrap failed, redirecting to login');
-    throw redirect('/admin/login');
-  }
+  console.log('[ADMIN_LOADER] /bootstrap', bootRes.status);
+
+  if (bootRes.status === 401 || bootRes.status === 403) throw redirect('/login');
   const features = await bootRes.json();
 
-  console.log('[ADMIN_LOADER] Authentication successful, features:', features);
+  console.log('[ADMIN_LOADER] done');                 // CANARY
   return { me, features };
 }
