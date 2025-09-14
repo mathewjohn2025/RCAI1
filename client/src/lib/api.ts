@@ -1,47 +1,21 @@
 /**
- * API Client - Stable Response Envelope System
- * NO HARDCODING - Works with any provider/model combination
+ * Step 4: One fetch wrapper (components) + one raw fetch (loaders)
+ * Components should redirect on 401/403. Loaders should throw redirect() (React Router).
  */
-import { ADMIN_ROUTES } from "@/config/apiEndpoints";
-import { clearAuthState } from './auth';
-import { API_CONFIG, SECURITY_CONFIG } from '@/config/runtime';
 
-export class UnauthorizedError extends Error {
-  constructor() {
-    super('Unauthorized');
-    this.name = 'UnauthorizedError';
+// Components: redirect immediately on unauthorized
+export async function api(url: string, init: RequestInit = {}) {
+  const res = await fetch(url, { credentials: 'include', cache: 'no-store', ...init });
+  if (res.status === 401 || res.status === 403) {
+    window.location.assign('/login');
+    throw new Error('Unauthorized');
   }
+  return res;
 }
 
-// SPECIFICATION: Single API wrapper with runtime config (zero hardcoding)
-export async function api(path: string, init: RequestInit = {}) {
-  // Build headers from runtime config
-  const configHeaders: Record<string, string> = {
-    [API_CONFIG.CLIENT_HEADER_NAME]: API_CONFIG.CLIENT_HEADER_VALUE,
-    "Content-Type": "application/json",
-  };
-
-  // SECURITY: Never add dev headers in production
-  const headers = {
-    ...configHeaders,
-    ...(init.headers || {}),
-  };
-
-  const r = await fetch(path, {
-    credentials: "include", // SPECIFICATION requirement
-    headers,
-    ...init,
-  });
-  
-  // SPECIFICATION: On 401, clear auth state and navigate to unified login route
-  if (r.status === 401) {
-    clearAuthState();
-    const currentPath = window.location.pathname + window.location.search;
-    const returnUrl = encodeURIComponent(currentPath);
-    window.location.href = `${API_CONFIG.LOGIN_ROUTE}?returnTo=${returnUrl}`;
-    throw new UnauthorizedError();
-  }
-  return r;
+// Loaders: don't redirect here; let the loader throw redirect()
+export async function apiRaw(url: string, init: RequestInit = {}) {
+  return fetch(url, { credentials: 'include', cache: 'no-store', ...init });
 }
 
 export type AITestOk = {

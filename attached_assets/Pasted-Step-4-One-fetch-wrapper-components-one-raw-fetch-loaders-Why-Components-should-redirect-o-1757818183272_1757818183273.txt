@@ -1,0 +1,179 @@
+Step 4 — One fetch wrapper (components) + one raw fetch (loaders)
+Why: Components should redirect on 401/403. Loaders should throw redirect() (React Router).
+client/src/lib/api.ts
+// Components: redirect immediately on unauthorized
+export async function api(url: string, init: RequestInit = {}) {
+  const res = await fetch(url, { credentials: 'include', cache: 'no-store', ...init });
+  if (res.status === 401 || res.status === 403) {
+    window.location.assign('/login');
+    throw new Error('Unauthorized');
+  }
+  return res;
+}
+
+// Loaders: don't redirect here; let the loader throw redirect()
+export async function apiRaw(url: string, init: RequestInit = {}) {
+  return fetch(url, { credentials: 'include', cache: 'no-store', ...init });
+}
+ESLint guard (dev-only, but effective):
+// .eslintrc*
+{
+  "rules": {
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "CallExpression[callee.name='fetch']",
+        "message": "Use api()/apiRaw() from src/lib/api instead of fetch()"
+      }
+    ]
+  }
+}
+Quick test: grep your client for direct fetchers and old helpers.
+grep -R "fetch(" client/src | wc -l   # should be 0
+grep -R "apiRequest" client/src       # replace all with api()/apiRaw()
+ 
+Step 5 — Hard gate with a parent adminLoader(prevents any admin mount)
+client/src/auth.ts
+import { apiRaw } from './lib/api';
+
+export async function getSessionRaw() {
+  const r = await apiRaw('/api/me');
+  return r; // caller decides redirect
+}
+client/src/routes/adminLoader.ts
+import { redirect } from 'react-router-dom';
+import { apiRaw } from '../lib/api';
+import { getSessionRaw } from '../auth';
+
+export async function adminLoader() {
+  // 1) Auth check
+  const meRes = await getSessionRaw();
+  if (meRes.status === 401 || meRes.status === 403) throw redirect('/login');
+  const me = await meRes.json();
+  if (me.role !== 'admin') throw redirect('/login');
+
+  // 2) Bootstrap features *before* any admin child mounts
+  const bootRes = await apiRaw('/api/admin/bootstrap');
+  if (bootRes.status === 401 || bootRes.status === 403) throw redirect('/login');
+  const features = await bootRes.json();
+
+  return { me, features };
+}
+client/src/router.tsx
+import { createBrowserRouter } from 'react-router-dom';
+import Login from './auth/Login';
+import AdminLayout from './admin/AdminLayout';
+import { adminLoader } from './routes/adminLoader';
+
+export const router = createBrowserRouter([
+  { path: '/login', element: <Login /> },
+  {
+    path: '/admin',
+    element: <AdminLayout />,
+    loader: adminLoader,
+    children: [
+      { index: true, lazy: () => import('./admin/Dashboard') },
+      { path: 'ai/providers', lazy: () => import('./admin/AIProvidersPage') },
+      { path: 'evidence', lazy: () => import('./admin/EvidenceLibraryPage') },
+      { path: 'taxonomy', lazy: () => import('./admin/TaxonomyPage') },
+    ],
+  },
+]);
+Critical test: Fully logged out, open a new tab directly to /admin/ai/providers.
+Result should be /login, and Network should show only /api/me (401/403) — no /api/admin/* calls.
+ 
+Step 6 — Render the Admin menu from loader data (deterministic features)
+client/src/admin/AdminLayout.tsx
+import { useLoaderData, NavLink, Outlet } from 'react-router-dom';
+
+type AdminBoot = { features: string[] };
+type LoaderData = { me: { id: string; role: string }; features: AdminBoot };
+
+export default function AdminLayout() {
+  const { features } = useLoaderData() as LoaderData;
+
+  const items = [
+    { key: 'ai_settings', label: 'AI Settings', to: '/admin/ai/providers' },
+    { key: 'evidence_library', label: 'Evidence Library', to: '/admin/evidence' },
+    { key: 'taxonomy', label: 'Taxonomy', to: '/admin/taxonomy' },
+  ];
+
+  return (
+    <div className="flex">
+      <aside className="w-64 p-4">
+        <nav className="space-y-2">
+          {items
+            .filter(i => features.features.includes(i.key))
+            .map(i => (
+              <NavLink key={i.key} to={i.to} className="block">
+                {i.label}
+              </NavLink>
+            ))}
+        </nav>
+      </aside>
+      <main className="flex-1 p-6">
+        <Outlet />
+      </main>
+    </div>
+  );
+}
+Test: Log in as admin → you should see the exact set from /api/admin/bootstrap (AI Settings, Evidence Library, Taxonomy).
+ 
+Step 7 — Move admin data fetching into route loaders(no eager effects)
+Don’t let components useEffect(fetch…) or auto-run React Query. Use a loader per admin page.
+client/src/admin/AIProvidersPage.tsx
+// Route module (React Router lazy route)
+import { useLoaderData } from 'react-router-dom';
+import { apiRaw } from '../lib/api';
+
+export async function loader() {
+  // parent adminLoader already proved you're admin
+  const res = await apiRaw('/api/admin/ai/providers');
+  if (!res.ok) throw new Response('Failed to load providers', { status: res.status });
+  const providers = await res.json();
+  return { providers };
+}
+
+export default function AIProvidersPage() {
+  const { providers } = useLoaderData() as { providers: any[] };
+  // render table with providers (no fetch here)
+  return /* your table using providers */;
+}
+Register the child loader (in router.tsx if not using lazy modules):
+{ path: 'ai/providers', element: <AIProvidersPage />, loader: providersLoader }
+Repeat the same pattern for EvidenceLibraryPage and TaxonomyPage.
+Test: With DevTools open, navigate into each admin subpage while logged in:
+•	You’ll see exactly one request for that page’s data, fired after adminLoader finished.
+•	Logged out → direct open to a subpage still lands on /login, with zero /api/admin/* calls.
+ 
+Step 8 — Make React Query harmless by default (optional but safe)
+If you use React Query anywhere:
+client/src/lib/queryClient.ts
+import { QueryClient } from '@tanstack/react-query';
+
+export const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      enabled: false, // won't fire unless you explicitly enable
+      retry: false,
+    },
+  },
+});
+When you do use it in admin pages, only enable after the loader:
+const { providers } = useLoaderData() as { providers: any[] };
+// if you still want react-query, seed from loader:
+queryClient.setQueryData(['/api/admin/ai/providers'], providers);
+Test: Reloads shouldn’t auto-fire admin queries unless you explicitly enable them.
+ 
+Step 9 — If anything still fires, catch the culprit instantly (dev trap)
+client/src/dev/admin-trap.ts (import once in dev entry)
+const ofetch = window.fetch;
+window.fetch = async (...args: any[]) => {
+  const url = String(args[0]);
+  if (url.includes('/api/admin/')) {
+    console.trace('ADMIN API CALL TRACE →', url);
+  }
+  return ofetch(...args);
+};
+
+

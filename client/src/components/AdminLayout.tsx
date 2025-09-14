@@ -1,41 +1,33 @@
-import { Outlet, useNavigate, useLocation } from "react-router-dom";
-import { API_ENDPOINTS, ADMIN_ROUTES } from "@/config/apiEndpoints";
-import { useEffect } from "react";
+import { useLoaderData, NavLink, Outlet } from 'react-router-dom';
+
+type AdminBoot = { features: string[] };
+type LoaderData = { me: { id: string; role: string }; features: AdminBoot };
 
 export default function AdminLayout() {
-  const navigate = useNavigate();
-  const location = useLocation();
+  const { features } = useLoaderData() as LoaderData;
 
-  // Defensive authentication check - belt and suspenders
-  // If any critical admin API returns 401 after mount (race, token expiry), redirect to login
-  useEffect(() => {
-    let canceled = false;
-    
-    (async () => {
-      try {
-        const r = await fetch(API_ENDPOINTS.authWhoami(), { credentials: 'include' });
-        if (!canceled) {
-          if (!r.ok) {
-            const returnTo = encodeURIComponent(location.pathname + location.search + location.hash);
-            navigate(`${ADMIN_ROUTES.LOGIN}?returnTo=${returnTo}`, { replace: true });
-            return;
-          }
-          const j = await r.json().catch(() => ({}));
-          if (!j?.authenticated || !j?.isAdmin) {
-            const returnTo = encodeURIComponent(location.pathname + location.search + location.hash);
-            navigate(`${ADMIN_ROUTES.LOGIN}?returnTo=${returnTo}`, { replace: true });
-          }
-        }
-      } catch {
-        if (!canceled) {
-          const returnTo = encodeURIComponent(location.pathname + location.search + location.hash);
-          navigate(`${ADMIN_ROUTES.LOGIN}?returnTo=${returnTo}`, { replace: true });
-        }
-      }
-    })();
+  const items = [
+    { key: 'ai_settings', label: 'AI Settings', to: '/admin/ai/providers' },
+    { key: 'evidence_library', label: 'Evidence Library', to: '/admin/evidence' },
+    { key: 'taxonomy', label: 'Taxonomy', to: '/admin/taxonomy' },
+  ];
 
-    return () => { canceled = true; };
-  }, [navigate, location]);
-
-  return <Outlet />;
+  return (
+    <div className="flex">
+      <aside className="w-64 p-4">
+        <nav className="space-y-2">
+          {items
+            .filter(i => features.features.includes(i.key))
+            .map(i => (
+              <NavLink key={i.key} to={i.to} className="block">
+                {i.label}
+              </NavLink>
+            ))}
+        </nav>
+      </aside>
+      <main className="flex-1 p-6">
+        <Outlet />
+      </main>
+    </div>
+  );
 }
