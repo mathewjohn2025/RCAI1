@@ -19,6 +19,7 @@ function HomePage() {
 export const router = createBrowserRouter([
   { path: '/', element: <HomePage /> },
   { path: '/admin/login', element: <AdminLogin /> },
+  { path: '/admin/canary-client', element: <div style={{padding:16,background:'#ffe08a'}}>CLIENT ROUTE CANARY</div> },
   {
     path: '/admin',
     element: <AdminLayout />,
