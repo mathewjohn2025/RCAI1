@@ -264,6 +264,17 @@ app.get('/api/me', (req, res) => {
     throw error;
   }
 
+  // 1) Serve static assets from the production build
+  const dist = path.resolve(__dirname, '../dist/public');
+  app.use(express.static(dist));
+
+  // 2) SPA fallback for ANY non-API request (so deep links like / or /admin/... work)
+  app.get(/^\/(?!api\/).*/, (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.set('X-SPA-Fallback', 'index.html'); // <-- verification header
+    res.sendFile(path.join(dist, 'index.html'));
+  });
+
   // CRITICAL FIX: Force built frontend mode to bypass Vite middleware API interception
   const forceBuiltMode = true; // Use built mode with fresh build containing latest code
   let server: any;

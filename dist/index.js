@@ -19838,6 +19838,13 @@ app2.get("/api/me", (req, res) => {
     console.error("[SERVER] CRITICAL ERROR in registerRoutes:", error);
     throw error;
   }
+  const dist = path5.resolve(__dirname, "../client/dist");
+  app2.use(express2.static(dist));
+  app2.get(/^\/(?!api\/).*/, (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    res.set("X-SPA-Fallback", "index.html");
+    res.sendFile(path5.join(dist, "index.html"));
+  });
   const forceBuiltMode = true;
   let server;
   if (app2.get("env") === "development" && !forceBuiltMode) {
