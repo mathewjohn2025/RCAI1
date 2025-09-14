@@ -265,7 +265,7 @@ app.get('/api/me', (req, res) => {
   }
 
   // CRITICAL FIX: Force built frontend mode to bypass Vite middleware API interception
-  const forceBuiltMode = true; // Override to fix API interception issue
+  const forceBuiltMode = true; // Use built mode with fresh build containing latest code
   let server: any;
   
   if (app.get("env") === "development" && !forceBuiltMode) {

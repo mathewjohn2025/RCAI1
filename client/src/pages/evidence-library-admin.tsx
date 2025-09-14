@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { api } from "@/lib/api";
 import SelectSafe from "@/components/SelectSafe";
 import { SENTINEL } from '@/constants/sentinels';
 import { 
@@ -318,21 +318,21 @@ export default function EvidenceLibraryAdmin() {
   // Fetch selected equipment profile
   const { data: equipmentProfile } = useQuery({
     queryKey: ['/api/evidence-library/equipment', selectedEquipment],
-    queryFn: () => apiRequest(`/api/evidence-library/equipment/${selectedEquipment}`),
+    queryFn: async () => { const response = await api(`/api/evidence-library/equipment/${selectedEquipment}`); return response.json(); },
     enabled: !!selectedEquipment,
   });
 
   // Fetch update history
   const { data: updateHistory } = useQuery({
     queryKey: ['/api/evidence-library/admin/history', selectedEquipment],
-    queryFn: () => apiRequest(`/api/evidence-library/admin/history?equipmentType=${selectedEquipment}`),
+    queryFn: async () => { const response = await api(`/api/evidence-library/admin/history?equipmentType=${selectedEquipment}`); return response.json(); },
     enabled: !!selectedEquipment,
   });
 
   // Update trend requirement mutation
   const updateTrendMutation = useMutation({
     mutationFn: async ({ equipmentType, trendId, updates }: { equipmentType: string; trendId: string; updates: any }) => {
-      return apiRequest(`/api/evidence-library/admin/equipment/${equipmentType}/trends/${trendId}`, {
+      const response = await api(`/api/evidence-library/admin/equipment/${equipmentType}/trends/${trendId}`, {
         method: 'PATCH',
         body: JSON.stringify({ updates, updatedBy: 'Admin User' }),
         headers: { 
@@ -360,7 +360,7 @@ export default function EvidenceLibraryAdmin() {
 
   // Export library mutation
   const exportMutation = useMutation({
-    mutationFn: () => apiRequest('/api/evidence-library/admin/export', {
+    mutationFn: async () => { const response = await api('/api/evidence-library/admin/export', {
       headers: { 'x-admin-key': 'admin123' }
     }),
     onSuccess: (data) => {
