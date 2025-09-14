@@ -1,0 +1,179 @@
+Step 1 — Add a single truth endpoint for auth
+Server: /api/me returns the current user or 401. Disable caching.
+// server/auth/me.ts
+app.get('/api/me', (req, res) => {
+  res.set('Cache-Control', 'no-store'); // never cache auth
+  if (!req.user) return res.status(401).json({ error: 'unauthorized' });
+  return res.json({ id: req.user.id, role: req.user.role });
+});
+✅ Test: curl -i http://localhost:PORT/api/me → 401 when logged out, 200 JSON when logged in.
+ 
+Step 2 — Guard admin APIs with 401/403 (never 302)
+// server/auth/requireAdmin.ts
+export function requireAdmin(req, res, next) {
+  if (req.user?.role === 'admin') return next();
+  res.set('Cache-Control', 'no-store');
+  return res.status(403).json({ error: 'forbidden' }); // or 401 if you prefer
+}
+
+// server/index.ts
+app.use('/api/admin', requireAdmin);
+✅ Test: curl -i http://localhost:PORT/api/admin/ai/providers → 403/401 logged out; 200 as admin.
+ 
+Step 3 — Provide admin menu configuration from server
+This makes Evidence Library, Taxonomy, etc. deterministic.
+// server/admin/bootstrap.ts
+app.get('/api/admin/bootstrap', requireAdmin, (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    features: ['ai_settings', 'evidence_library', 'taxonomy'], // add whatever you want visible
+  });
+});
+✅ Test: Admin user → 200 with features array; logged out → 403/401.
+ 
+Step 4 — One fetch wrapper; kill direct fetches
+All client API calls must go through this so 401/403 always redirect to login.
+// client/src/lib/api.ts
+export async function api(url: string, init: RequestInit = {}) {
+  const res = await fetch(url, {
+    credentials: 'include',
+    cache: 'no-store',
+    ...init,
+  });
+  if (res.status === 401 || res.status === 403) {
+    window.location.assign('/login');
+    throw new Error('Unauthorized');
+  }
+  return res;
+}
+Lint guard (dev-only but highly effective):
+// .eslintrc.* 
+{
+  "rules": {
+    "no-restricted-syntax": [
+      "error",
+      { "selector": "CallExpression[callee.name='fetch']",
+        "message": "Use api() from src/lib/api instead of fetch()" }
+    ]
+  }
+}
+✅ Test: Grep for fetch( in client/src—should be zero after fixes.
+ 
+Step 5 — Route-level hard gate (React Router loader)
+This prevents admin UI from mounting in a new tab until auth is verified.
+// client/src/auth.ts
+export async function getSession() {
+  const r = await api('/api/me');      // uses wrapper above
+  return r.json();
+}
+
+// client/src/routes/adminLoader.ts
+import { redirect } from 'react-router-dom';
+import { getSession } from '../auth';
+
+export async function adminLoader() {
+  const me = await getSession();              // throws on 401/403 → we’ll never get here
+  if (me.role !== 'admin') throw redirect('/login');
+  // Also fetch admin features before any child mounts:
+  const features = await api('/api/admin/bootstrap').then(r => r.json());
+  return { me, features };
+}
+Wire into router:
+// client/src/router.tsx
+import { createBrowserRouter } from 'react-router-dom';
+import Login from './auth/Login';
+import AdminLayout from './admin/AdminLayout';
+import { adminLoader } from './routes/adminLoader';
+
+export const router = createBrowserRouter([
+  { path: '/login', element: <Login /> },
+  {
+    path: '/admin',
+    element: <AdminLayout />,
+    loader: adminLoader,
+    children: [
+      { index: true, lazy: () => import('./admin/Dashboard') },
+      { path: 'ai/providers', lazy: () => import('./admin/AIProvidersPage') },
+      { path: 'evidence', lazy: () => import('./admin/EvidenceLibraryPage') },
+      { path: 'taxonomy', lazy: () => import('./admin/TaxonomyPage') },
+    ],
+  },
+]);
+✅ Test (critical): Open a new tab directly to /admin/ai/providers while logged out → you see /login immediately; no admin UI flashes; Network shows /api/me → 401/403, then navigation to /login.
+ 
+Step 6 — Render the admin menu from loader data
+This guarantees AI Settings, Evidence Library, Taxonomy appear.
+// client/src/admin/AdminLayout.tsx
+import { useLoaderData, NavLink, Outlet } from 'react-router-dom';
+
+export default function AdminLayout() {
+  const { features } = useLoaderData() as { features: { features: string[] } };
+
+  const items = [
+    { key: 'ai_settings', label: 'AI Settings', to: '/admin/ai/providers' },
+    { key: 'evidence_library', label: 'Evidence Library', to: '/admin/evidence' },
+    { key: 'taxonomy', label: 'Taxonomy', to: '/admin/taxonomy' },
+  ];
+
+  return (
+    <div className="flex">
+      <aside className="w-64 p-4">
+        <nav className="space-y-2">
+          {items
+            .filter(i => features.features.includes(i.key))
+            .map(i => (
+              <NavLink key={i.key} to={i.to} className="block">
+                {i.label}
+              </NavLink>
+            ))}
+        </nav>
+      </aside>
+      <main className="flex-1 p-6">
+        <Outlet />
+      </main>
+    </div>
+  );
+}
+✅ Test: Log in as admin → menu shows exactly what the server listed.
+ 
+Step 7 — Stop eager queries until loader says OK
+If you use React Query/TanStack Query:
+// client/src/lib/queryClient.ts
+import { QueryClient } from '@tanstack/react-query';
+export const queryClient = new QueryClient({
+  defaultOptions: { queries: { enabled: false, retry: false } },
+});
+In admin pages, explicitly enable after loader passes:
+// client/src/admin/AIProvidersPage.tsx
+import { useLoaderData } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../lib/api';
+
+export default function AIProvidersPage() {
+  useLoaderData(); // ensures we’re behind the adminLoader gate
+  const { data } = useQuery({
+    queryKey: ['/api/admin/ai/providers'],
+    queryFn: () => api('/api/admin/ai/providers').then(r => r.json()),
+    enabled: true, // safe: loader already proved admin
+  });
+  // ...
+}
+✅ Test: With DevTools Network open, navigate to /admin while logged out → no admin API calls occur.
+ 
+Step 8 — Kill caching edge-cases
+•	For /api/me and /api/admin/*: server sets Cache-Control: no-store.
+•	Your wrapper already sets cache: 'no-store'.
+•	If you log out, delete the cookie server-side and redirect to /login.
+✅ Test: Log in → open /admin. Log out in another tab → refresh the admin tab → goes to /login (because /api/menow 401/403 and isn’t cached).
+ 
+Step 9 — Quick “where is this call coming from?” trap (optional, dev)
+If you still see phantom admin requests:
+// client/src/dev/admin-trap.ts
+const ofetch = window.fetch;
+window.fetch = async (...args: any[]) => {
+  const url = String(args[0]);
+  if (url.includes('/api/admin')) {
+    console.trace('ADMIN API CALL TRACE:', url);
+  }
+  return ofetch(...args);
+};

@@ -175,18 +175,11 @@ export function requireRole(requiredRole: string) {
 /**
  * Middleware to require admin role - Enhanced version
  */
+// Step 2: Guard admin APIs with 401/403 (never 302)
 export function requireAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  if (!req.session?.user) {
-    return res.status(401).json({ code: 'UNAUTHENTICATED', message: 'Sign in' });
-  }
-
-  const userRoles = req.session.user.roles || [];
-  if (!userRoles.includes(ADMIN_ROLE_NAME)) {
-    return res.status(403).json({ code: 'FORBIDDEN', message: 'Admin only' });
-  }
-
-  req.user = req.session.user;
-  next();
+  if (req.session?.user?.roles?.includes(ADMIN_ROLE_NAME)) return next();
+  res.set('Cache-Control', 'no-store');
+  return res.status(403).json({ error: 'forbidden' }); // as per specification
 }
 
 /**

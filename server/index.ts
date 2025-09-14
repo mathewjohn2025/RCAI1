@@ -122,19 +122,12 @@ app.get('/admin/*', (req, res, next) => {
   return next();
 });
 
-// 4) ADMIN API GUARD - Accept header detection per specification
-const requireAdmin = (req: any, res: any, next: any) => {
-  if (!req.session?.user) {
-    // Check Accept header - if includes text/html, redirect; otherwise 401 JSON
-    const acceptsHtml = req.headers.accept && req.headers.accept.includes('text/html');
-    if (acceptsHtml) {
-      return res.redirect('/login');
-    } else {
-      return res.status(401).json({ error: 'unauthorized' });
-    }
-  }
-  next();
-};
+// Step 2: Guard admin APIs with 401/403 (never 302)
+function requireAdmin(req: any, res: any, next: any) {
+  if (req.session?.user?.roles?.includes('admin')) return next();
+  res.set('Cache-Control', 'no-store');
+  return res.status(403).json({ error: 'forbidden' }); // as per specification
+}
 
 app.use('/api/admin', requireAdmin);
 
@@ -236,32 +229,23 @@ app.post('/api/auth/logout', (req, res) => {
   });
 });
 
-// --- ADMIN API guarded (after admin guard) ---
-function isAdmin(req: any){ 
-  const hasAdminRole = !!(req.session?.user?.roles?.includes(ADMIN_ROLE_NAME)); 
-  return hasAdminRole;
-}
-function requireAdminApi(req: any, res: any, next: any){ return isAdmin(req) ? next() : res.status(401).json({error:'unauthorized'}); }
-const adminApi = express.Router();
-adminApi.get('/whoami', (req: any, res: any) => {
-  const user = req.session?.user;
+// Step 3: Provide admin menu configuration from server
+app.get('/api/admin/bootstrap', requireAdmin, (_req, res) => {
+  res.set('Cache-Control', 'no-store');
   res.json({
-    authenticated: !!user && isAdmin(req),
-    roles: user?.roles || [],
-    user: user ? { id: user.id, email: user.email } : null
+    features: ['ai_settings', 'evidence_library', 'taxonomy'], // add whatever you want visible
   });
 });
 
-adminApi.get('/sections', async (req: any, res: any) => {
-  try {
-    const { ADMIN_SECTIONS } = await import('./config.js');
-    res.json({ sections: ADMIN_SECTIONS });
-  } catch (error) {
-    console.error('[API] Error fetching admin sections:', error);
-    res.status(500).json({ error: 'Failed to fetch admin sections' });
-  }
+// Step 1: Single truth endpoint for auth (MUST be before static serving)
+app.get('/api/me', (req, res) => {
+  res.set('Cache-Control', 'no-store'); // never cache auth
+  if (!req.session?.user) return res.status(401).json({ error: 'unauthorized' });
+  return res.json({ 
+    id: req.session.user.id, 
+    role: req.session.user.roles?.includes('admin') ? 'admin' : 'user' 
+  });
 });
-app.use('/api/admin', requireAdminApi, adminApi);
 
 (async () => {
   // Register all API routes IMMEDIATELY after admin guards (following exact specification order)
