@@ -25,6 +25,7 @@ import { registerRoutes } from "./routes";
 import { createServer } from "http";
 import { setupVite, serveStatic, log } from "./vite";
 import path from "path";
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import cookieParser from 'cookie-parser';
 import session from 'express-session';
@@ -250,6 +251,33 @@ app.get('/api/me', (req, res) => {
   return res.json({ 
     id: req.session.user.id, 
     role: req.session.user.roles?.includes('admin') ? 'admin' : 'user' 
+  });
+});
+
+// Add SPA debug endpoint
+app.get('/__spa-debug', (_req, res) => {
+  const variants = [
+    path.resolve(__dirname, '../client/dist'),
+    path.resolve(__dirname, '../../client/dist'),
+    path.resolve(process.cwd(), 'client/dist'),
+    path.resolve(process.cwd(), 'dist'),
+  ];
+
+  const results = variants.map((dist) => {
+    const indexPath = path.join(dist, 'index.html');
+    return {
+      dist,
+      indexPath,
+      existsDist: fs.existsSync(dist),
+      existsIndex: fs.existsSync(indexPath),
+    };
+  });
+
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    __dirname,
+    cwd: process.cwd(),
+    results,
   });
 });
 
