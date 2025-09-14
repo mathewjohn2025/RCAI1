@@ -19840,6 +19840,11 @@ app2.get("/api/me", (req, res) => {
   }
   const dist = path5.resolve(__dirname, "../dist/public");
   app2.use(express2.static(dist));
+  app2.get("/", (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    res.set("X-Root-HTML", "1");
+    res.sendFile(path5.join(dist, "index.html"));
+  });
   app2.get(/^\/(?!api\/).*/, (_req, res) => {
     res.set("Cache-Control", "no-store");
     res.set("X-SPA-Fallback", "index.html");

@@ -268,7 +268,14 @@ app.get('/api/me', (req, res) => {
   const dist = path.resolve(__dirname, '../dist/public');
   app.use(express.static(dist));
 
-  // 2) SPA fallback for ANY non-API request (so deep links like / or /admin/... work)
+  // 2) explicit root HTML (for / only)
+  app.get('/', (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.set('X-Root-HTML', '1');           // <-- debug header so we can confirm
+    res.sendFile(path.join(dist, 'index.html'));
+  });
+
+  // 3) SPA fallback for ANY non-API request (so deep links like / or /admin/... work)
   app.get(/^\/(?!api\/).*/, (_req, res) => {
     res.set('Cache-Control', 'no-store');
     res.set('X-SPA-Fallback', 'index.html'); // <-- verification header
