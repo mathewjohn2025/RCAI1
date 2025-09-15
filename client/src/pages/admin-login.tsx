@@ -1,90 +1,49 @@
-import React, { useState, useEffect, useRef } from "react";
-import { ADMIN_ROUTES, API_ENDPOINTS } from "@/config/apiEndpoints";
+import { useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { api } from "../lib/api";
 
-export default function AdminLoginPage() {
-  const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
-  const emailRef = useRef<HTMLInputElement>(null);
+export default function AdminLogin() {
+  const qc = useQueryClient();
+  const nav = useNavigate();
+  const loc = useLocation();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState("");
 
-  // Check if already authenticated on load and focus email field
-  useEffect(() => {
-    checkAuth();
-    emailRef.current?.focus();
-  }, []);
+  const returnTo = new URLSearchParams(loc.search).get("returnTo") || "/admin/settings";
 
-  async function checkAuth() {
-    try {
-      const res = await fetch(API_ENDPOINTS.authWhoami(), { 
-        credentials: "include"
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.isAdmin) {
-          // Already authenticated as admin, validate and redirect safely
-          const urlParams = new URLSearchParams(window.location.search);
-          let returnTo = urlParams.get('returnTo');
-          
-          // Security: Only allow same-origin relative paths
-          if (returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//')) {
-            window.location.href = returnTo;
-          } else {
-            // Invalid returnTo - redirect to base admin route (server will handle)
-            window.location.href = ADMIN_ROUTES.BASE;
-          }
-        }
-      }
-    } catch (error) {
-      // Not authenticated, continue to login form
-    }
-  }
-
-  async function handleLogin(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const formData = new FormData(e.target as HTMLFormElement);
-    const email = formData.get('username') as string;
-    const password = formData.get('password') as string;
-    
-    if (!email || !password) {
-      setToast("Please enter email and password");
-      return;
-    }
-
-    setBusy(true);
-    setToast(null);
+    setSubmitting(true);
+    setErr("");
 
     try {
-      // Get returnTo from URL params
-      const urlParams = new URLSearchParams(window.location.search);
-      const returnTo = urlParams.get('returnTo');
-
-      const res = await fetch(API_ENDPOINTS.authLogin(), {
+      await api("/api/auth/login", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
-        credentials: "include",
-        body: JSON.stringify({ email, password, returnTo })
+        body: JSON.stringify({ email, password }),
       });
 
-      const data = await res.json().catch(() => ({}));
-
-      if (res.ok && data.ok) {
-        setToast("Login successful! Redirecting...");
-        setTimeout(() => {
-          // Navigate to sanitized returnTo from server response
-          window.location.href = data.returnTo;
-        }, 1000);
-      } else if (res.status === 401) {
-        setToast("Invalid email or password");
-      } else if (res.status === 429) {
-        setToast("Too many login attempts. Please try again later.");
-      } else {
-        setToast(data.message || "Login failed");
+      // Force whoami to update & wait briefly until it reports a user
+      await qc.invalidateQueries({ queryKey: ["whoami"] });
+      const start = Date.now();
+      while (Date.now() - start < 1500) {
+        const me: any = qc.getQueryData(["whoami"]);
+        if (me?.user) break;
+        await qc.refetchQueries({ queryKey: ["whoami"], exact: true });
+        await new Promise(r => setTimeout(r, 100));
       }
-    } catch (error) {
-      setToast("Network error. Please try again.");
+
+      // Now that session is confirmed, navigate once
+      nav(returnTo, { replace: true });
+    } catch (e: any) {
+      setErr(e?.body?.error || "Login failed");
     } finally {
-      setBusy(false);
+      setSubmitting(false);
     }
   }
 
@@ -98,25 +57,22 @@ export default function AdminLoginPage() {
           </p>
         </div>
         
-        <form className="space-y-6" onSubmit={handleLogin}>
+        <form className="space-y-6" onSubmit={handleSubmit}>
+          {/* uncontrolled inputs avoid flicker */}
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
               Email Address
             </label>
             <input
-              ref={emailRef}
               id="email"
               name="username"
               type="email"
-              inputMode="email"
               autoComplete="username"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
               defaultValue=""
+              onChange={(e) => setEmail(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
               placeholder="admin@example.com"
-              disabled={busy}
+              disabled={submitting}
               data-testid="input-email"
             />
           </div>
@@ -130,30 +86,26 @@ export default function AdminLoginPage() {
               name="password"
               type="password"
               autoComplete="current-password"
-              defaultValue=""
+              onChange={(e) => setPassword(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
               placeholder="Enter your password"
-              disabled={busy}
+              disabled={submitting}
               data-testid="input-password"
             />
           </div>
 
-          <button
-            type="submit"
-            disabled={busy}
+          <button 
+            type="submit" 
+            disabled={submitting}
             className="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-white bg-black hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black disabled:opacity-50 disabled:cursor-not-allowed"
             data-testid="button-login"
           >
-            {busy ? "Signing in..." : "Sign In"}
+            {submitting ? "Signing in..." : "Sign In"}
           </button>
-
-          {toast && (
-            <div className={`mt-4 p-3 rounded-md text-sm ${
-              toast.includes('successful') 
-                ? 'bg-green-50 text-green-800 border border-green-200' 
-                : 'bg-red-50 text-red-800 border border-red-200'
-            }`} data-testid="toast-message">
-              {toast}
+          
+          {err && (
+            <div className="mt-4 p-3 rounded-md text-sm bg-red-50 text-red-800 border border-red-200" role="alert" data-testid="toast-message">
+              {err}
             </div>
           )}
         </form>
