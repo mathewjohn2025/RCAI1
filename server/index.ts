@@ -282,6 +282,14 @@ app.get('/__spa-debug', (_req, res) => {
 });
 
 (async () => {
+  // API admin guard (must be BEFORE registerRoutes)
+  app.use("/api/admin", (req, res, next) => {
+    const authed = !!req.session?.user;
+    console.log("[GUARD:/api/admin]", req.method, req.originalUrl, "authed=", authed);
+    if (!authed) return res.status(401).json({ error: "unauthorized" });
+    next();
+  });
+
   // Register all API routes IMMEDIATELY after admin guards (following exact specification order)
   console.log("[SERVER] Registering API routes directly after admin guards");
   try {
