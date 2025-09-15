@@ -59,8 +59,6 @@ const app = express();
 
 // ========== EXACT ORDER FROM SPECIFICATION - ZERO HARDCODING ==========
 
-// 1) Trust proxy for secure cookies on Replit/any proxy
-app.set('trust proxy', 1);
 console.log("[PROTO]", "secure?", process.env.NODE_ENV, "->", "trust proxy = 1");
 
 // CORS with credentials per specification
@@ -71,23 +69,19 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
 
-// 2) Sessions first
-const pgSession = connectPgSimple(session);
+app.set("trust proxy", 1); // Replit is behind a proxy
+
 app.use(session({
   name: "sid",
   secret: process.env.SESSION_SECRET || "dev-only-change-me",
   resave: false,
   saveUninitialized: false,
-  store: new pgSession({
-    conString: process.env.DATABASE_URL,
-    tableName: 'sessions',
-    createTableIfMissing: true,
-  }),
   cookie: {
-    secure: true,        // HTTPS only
-    sameSite: "lax",     // perfect for same-origin
+    secure: true,        // HTTPS only (Replit new-tab is HTTPS)
+    sameSite: "none",    // works even if frontend and API are on different origins/iframe
     httpOnly: true,
-    maxAge: 1000 * 60 * 60 * 24 * 7, // 7d
+    maxAge: 1000 * 60 * 60 * 24 * 7,
+    path: "/",           // explicit path so it's sent everywhere
   },
 }));
 
@@ -157,24 +151,24 @@ app.get('/api/auth/whoami', (req, res) => {
 
 app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body || {};
+  // TODO: validate credentials properly
 
-  // TODO: verify credentials properly; for now assume valid
-  // IMPORTANT: regenerate session to prevent fixation
   req.session.regenerate((err) => {
     if (err) {
-      console.error("[LOGIN] session regenerate failed:", err);
+      console.error("[LOGIN] regenerate failed", err);
       return res.status(500).json({ error: "session_error" });
     }
 
     req.session.user = { id: "admin-id", email: email || "admin@example.com", roles: ["admin"] };
 
-    // Save to ensure Set-Cookie is flushed before we respond
     req.session.save((err2) => {
       if (err2) {
-        console.error("[LOGIN] session save failed:", err2);
+        console.error("[LOGIN] save failed", err2);
         return res.status(500).json({ error: "session_error" });
       }
-      console.log("[LOGIN] success; user set; session id:", req.sessionID);
+      // DEBUG: show if Set-Cookie header is present
+      const sc = res.getHeader("Set-Cookie");
+      console.log("[LOGIN] ok; sessionID=", req.sessionID, "Set-Cookie?", !!sc);
       return res.json({ ok: true });
     });
   });
@@ -191,14 +185,21 @@ app.post('/api/auth/logout', (req, res) => {
   });
 });
 
-// Cookie debug route (temporary; helps us verify once)
 app.get("/api/auth/cookie-debug", (req, res) => {
   res.json({
     protocolSeen: req.protocol,
     forwardedProto: req.headers["x-forwarded-proto"] || null,
-    hasSession: !!req.session,
+    sidPresentInRequest: (req.headers.cookie || "").includes("sid="),
     user: req.session?.user ?? null,
   });
+});
+
+// temporary: log cookie presence on every request (easy to remove later)
+app.use((req, _res, next) => {
+  if (req.path.startsWith("/api/")) {
+    console.log("[REQ]", req.method, req.path, "cookieHasSid=", (req.headers.cookie || "").includes("sid="));
+  }
+  next();
 });
 
 // Step 3: Provide admin menu configuration from server
