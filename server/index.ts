@@ -61,6 +61,7 @@ const app = express();
 
 // 1) Trust proxy for secure cookies on Replit/any proxy
 app.set('trust proxy', 1);
+console.log("[PROTO]", "secure?", process.env.NODE_ENV, "->", "trust proxy = 1");
 
 // CORS with credentials per specification
 app.use(cors({
@@ -73,21 +74,21 @@ app.use(cors({
 // 2) Sessions first
 const pgSession = connectPgSimple(session);
 app.use(session({
-  secret: process.env.SESSION_SECRET!,
+  name: "sid",
+  secret: process.env.SESSION_SECRET || "dev-only-change-me",
   resave: false,
   saveUninitialized: false,
-  proxy: true,
   store: new pgSession({
     conString: process.env.DATABASE_URL,
     tableName: 'sessions',
     createTableIfMissing: true,
   }),
   cookie: {
+    secure: true,        // HTTPS only
+    sameSite: "lax",     // perfect for same-origin
     httpOnly: true,
-    secure: true,       // Required per specification
-    sameSite: 'none',   // Required per specification for CORS
-    maxAge: 1000*60*60*24*7
-  }
+    maxAge: 1000 * 60 * 60 * 24 * 7, // 7d
+  },
 }));
 
 // Essential middleware before guards
@@ -224,6 +225,16 @@ app.post('/api/auth/logout', (req, res) => {
       return res.status(500).json({code: 'SESSION_ERROR'});
     }
     res.json({ ok: true });
+  });
+});
+
+// Cookie debug route (temporary; helps us verify once)
+app.get("/api/auth/cookie-debug", (req, res) => {
+  res.json({
+    protocolSeen: req.protocol,
+    forwardedProto: req.headers["x-forwarded-proto"] || null,
+    hasSession: !!req.session,
+    user: req.session?.user ?? null,
   });
 });
 
