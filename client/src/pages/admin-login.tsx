@@ -12,7 +12,13 @@ export default function AdminLogin() {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState("");
 
-  const returnTo = new URLSearchParams(loc.search).get("returnTo") || "/admin/settings";
+  function getReturnTo() {
+    const params = new URLSearchParams(loc.search);
+    const rt = params.get("returnTo");
+    // defend against bad/encoded values; only allow /admin paths
+    if (rt && decodeURIComponent(rt).startsWith("/admin")) return decodeURIComponent(rt);
+    return "/admin/settings";
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -20,15 +26,13 @@ export default function AdminLogin() {
     setErr("");
 
     try {
+      // submit login
       await api("/api/auth/login", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify({ email, password }),
       });
 
-      // Force whoami to update & wait briefly until it reports a user
+      // wait for whoami to reflect the session once
       await qc.invalidateQueries({ queryKey: ["whoami"] });
       const start = Date.now();
       while (Date.now() - start < 1500) {
@@ -38,8 +42,7 @@ export default function AdminLogin() {
         await new Promise(r => setTimeout(r, 100));
       }
 
-      // Now that session is confirmed, navigate once
-      nav(returnTo, { replace: true });
+      nav(getReturnTo(), { replace: true });
     } catch (e: any) {
       setErr(e?.body?.error || "Login failed");
     } finally {
