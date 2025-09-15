@@ -1,15 +1,15 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { ADMIN_ROUTES, API_ENDPOINTS } from "@/config/apiEndpoints";
 
 export default function AdminLoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
 
-  // Check if already authenticated on load
+  // Check if already authenticated on load and focus email field
   useEffect(() => {
     checkAuth();
+    emailRef.current?.focus();
   }, []);
 
   async function checkAuth() {
@@ -40,6 +40,10 @@ export default function AdminLoginPage() {
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
+    const formData = new FormData(e.target as HTMLFormElement);
+    const email = formData.get('username') as string;
+    const password = formData.get('password') as string;
+    
     if (!email || !password) {
       setToast("Please enter email and password");
       return;
@@ -96,13 +100,20 @@ export default function AdminLoginPage() {
         
         <form className="space-y-6" onSubmit={handleLogin}>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
               Email Address
             </label>
             <input
+              ref={emailRef}
+              id="email"
+              name="username"
               type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              inputMode="email"
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              defaultValue=""
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
               placeholder="admin@example.com"
               disabled={busy}
@@ -111,13 +122,15 @@ export default function AdminLoginPage() {
           </div>
           
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
               Password
             </label>
             <input
+              id="password"
+              name="password"
               type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              defaultValue=""
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
               placeholder="Enter your password"
               disabled={busy}
@@ -127,7 +140,7 @@ export default function AdminLoginPage() {
 
           <button
             type="submit"
-            disabled={busy || !email || !password}
+            disabled={busy}
             className="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-white bg-black hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black disabled:opacity-50 disabled:cursor-not-allowed"
             data-testid="button-login"
           >
