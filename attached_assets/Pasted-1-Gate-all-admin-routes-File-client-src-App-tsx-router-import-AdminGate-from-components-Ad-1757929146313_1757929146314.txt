@@ -1,0 +1,62 @@
+1) Gate all /admin/* routes
+File: client/src/App.tsx (router)
+import AdminGate from "./components/AdminGate";
+// ...
+<Routes>
+  <Route path="/" element={<Home />} />
+  <Route path="/admin/login" element={<AdminLogin />} />
+
+  {/* Everything under /admin/* must be gated */}
+  <Route path="/admin/settings" element={<AdminGate><AdminSettings /></AdminGate>} />
+  <Route path="/admin/evidence" element={<AdminGate><EvidenceLibrary /></AdminGate>} />
+  <Route path="/admin/taxonomy" element={<AdminGate><Taxonomy /></AdminGate>} />
+  {/* repeat for all other /admin/* pages */}
+</Routes>
+2) AdminGate must render nothing while whoami loads
+File: client/src/components/AdminGate.tsx
+import { Navigate, useLocation } from "react-router-dom";
+import { useWhoAmI } from "../hooks/useWhoAmI";
+
+export default function AdminGate({ children }: { children: JSX.Element }) {
+  const { data, isLoading } = useWhoAmI();
+  const loc = useLocation();
+  if (isLoading) return null;
+  if (!data?.user) {
+    const rt = encodeURIComponent(loc.pathname + loc.search);
+    return <Navigate to={`/admin/login?returnTo=${rt}`} replace />;
+  }
+  return children;
+}
+3) Gate the admin fetch on login state (example: AI Settings)
+File: client/src/pages/AdminSettings.tsx
+(If unsure, search the repo for "/api/admin/ai-settings" and edit that component.)
+import { useQuery } from "@tanstack/react-query";
+import { useWhoAmI } from "../hooks/useWhoAmI";
+import { api } from "../api/http";
+
+export default function AdminSettings() {
+  const { data: me, isLoading: whoLoading } = useWhoAmI();
+  const enabled = !!me?.user && !whoLoading;
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["admin","aiSettings"],
+    queryFn: () => api("/api/admin/ai-settings"),
+    enabled, // ← critical
+  });
+
+  // ...render...
+}
+4) Ensure the fetch wrapper always sends cookies
+File: client/src/api/http.ts
+export async function api<T>(url: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(url, {
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(init.headers || {}) },
+    ...init,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(body.error || res.statusText), { status: res.status, body });
+  }
+  return res.json() as Promise<T>;
+}
