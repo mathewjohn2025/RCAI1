@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+import { api } from "../lib/api";
 
 export function useWhoAmI() {
   return useQuery({
-    queryKey: ['whoami'],
-    queryFn: () => fetch('/api/auth/whoami', { credentials: 'include' }).then(r => r.json()),
-    staleTime: 0,
-    gcTime: 0,
-    refetchOnMount: 'always'
+    queryKey: ["whoami"],
+    queryFn: () => api("/api/auth/whoami"),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,   // <-- prevent flicker on focus
+    refetchOnReconnect: false,
   });
 }
