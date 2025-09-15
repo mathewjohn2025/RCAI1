@@ -304,23 +304,6 @@ app.get('/__spa-debug', (_req, res) => {
     next();
   });
 
-  // 1) Serve static assets from the production build
-  const dist = path.resolve(__dirname, '../dist/public');
-  app.use(express.static(dist));
-
-  // 2) explicit root HTML (for / only)
-  app.get('/', (_req, res) => {
-    res.set('Cache-Control', 'no-store');
-    res.set('X-Root-HTML', '1');           // <-- debug header so we can confirm
-    res.sendFile(path.join(dist, 'index.html'));
-  });
-
-  // 3) SPA fallback for ANY non-API request (so deep links like / or /admin/... work)
-  app.get(/^\/(?!api\/).*/, (_req, res) => {
-    res.set('Cache-Control', 'no-store');
-    res.set('X-SPA-Fallback', 'index.html'); // <-- verification header
-    res.sendFile(path.join(dist, 'index.html'));
-  });
 
   // CRITICAL FIX: Force built frontend mode to bypass Vite middleware API interception
   const forceBuiltMode = true; // Use built mode with fresh build containing latest code
@@ -340,24 +323,6 @@ app.get('/__spa-debug', (_req, res) => {
     
   } else {
     log("🚀 SERVING BUILT FRONTEND - Bypassing Vite middleware API interception");
-    
-    // 5) static files & SPA fallback LAST
-    const publicPath = path.resolve(process.cwd(), 'dist/public');
-    app.use(express.static(publicPath, {
-      setHeaders: (res, filePath) => {
-        if (filePath.endsWith(".html")) {
-          res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-          res.setHeader("Pragma", "no-cache");
-          res.setHeader("Expires", "0");
-        } else {
-          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-        }
-      },
-    }));
-    
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(publicPath, 'index.html'));
-    });
     
     server = createServer(app);
     log("✅ Built frontend active - API calls now reach backend directly");
@@ -401,5 +366,18 @@ app.get('/__spa-debug', (_req, res) => {
       console.log('Server closed');
       process.exit(0);
     });
+  });
+
+  const clientDir = path.join(process.cwd(), "dist", "public");
+
+  // Serve built assets
+  app.use(express.static(clientDir, {
+    setHeaders: (_, p) => console.log("[STATIC]", p)
+  }));
+
+  // SPA fallback — let React Router handle routes
+  app.get("*", (req, res) => {
+    console.log("[SPA]", req.path, "-> index.html");
+    res.sendFile(path.join(clientDir, "index.html"));
   });
 })();
