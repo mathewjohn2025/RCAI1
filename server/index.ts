@@ -123,27 +123,18 @@ app.get('/admin/*', (req, res, next) => {
   return next();
 });
 
-// Step 2: Guard admin APIs with 401/403 (never 302)
-function requireAdmin(req: any, res: any, next: any) {
-  if (req.session?.user?.roles?.includes('admin')) return next();
-  res.set('Cache-Control', 'no-store');
-  return res.status(403).json({ error: 'forbidden' }); // as per specification
-}
-
-// --- ADMIN API GUARD: standardize statuses (MOVED HERE TO RUN BEFORE ROUTES) ---
-console.log("[STARTUP] Installing admin API guard middleware");
+// --- UNIFIED ADMIN API GUARD (place BEFORE admin routers) ---
 app.use("/api/admin", (req, res, next) => {
-  console.log("[GUARD:/api/admin] TRIGGERED:", req.method, req.originalUrl);
   const user = req.session?.user;
   if (!user) {
     console.log("[GUARD:/api/admin]", req.method, req.originalUrl, "-> 401 (no session)");
-    return res.status(401).json({ error: "unauthorized" }); // NOT 403
+    return res.status(401).json({ error: "unauthorized" }); // not 403
   }
-  if (!user.roles?.includes("admin")) {
+  // if you have roles:
+  if (user.role !== "admin") {
     console.log("[GUARD:/api/admin]", req.method, req.originalUrl, "-> 403 (not admin)");
     return res.status(403).json({ error: "forbidden" });
   }
-  console.log("[GUARD:/api/admin]", req.method, req.originalUrl, "-> PASS (admin access)");
   next();
 });
 
@@ -246,7 +237,7 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 // Step 3: Provide admin menu configuration from server
-app.get('/api/admin/bootstrap', requireAdmin, (_req, res) => {
+app.get('/api/admin/bootstrap', (_req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({
     features: ['ai_settings', 'evidence_library', 'taxonomy'], // add whatever you want visible
@@ -254,7 +245,7 @@ app.get('/api/admin/bootstrap', requireAdmin, (_req, res) => {
 });
 
 // Admin canary endpoint
-app.get('/api/admin/canary', requireAdmin, (_req, res) => {
+app.get('/api/admin/canary', (_req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ ok: true, now: new Date().toISOString() });
 });
