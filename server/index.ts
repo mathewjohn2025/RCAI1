@@ -373,26 +373,42 @@ app.get('/__spa-debug', (_req, res) => {
     });
   });
 
-  // Pick the right built frontend dir
+  // Locate built client (match current build layout)
   const candidates = [
-    path.join(process.cwd(), "dist", "public"),   // common in your logs
-    path.join(process.cwd(), "client", "dist"),   // common in Vite setups
+    path.join(process.cwd(), "dist", "public"),
+    path.join(process.cwd(), "client", "dist"),
   ];
   const clientDir = candidates.find(p => fs.existsSync(path.join(p, "index.html")));
-  if (!clientDir) {
-    console.error("[SPA] index.html not found in:", candidates);
-    process.exit(1);
-  }
+  if (!clientDir) { console.error("[SPA] index.html not found in", candidates); process.exit(1); }
 
-  // Serve built assets
+  // Serve static assets
   app.use(express.static(clientDir));
 
-  // Optional: keep a health check so we don't add a canary at "/"
+  // Health check (keep this; do NOT add a canary at "/")
   app.get("/healthz", (_req, res) => res.send("ok"));
 
-  // SPA fallback — let React Router handle routes
+  // SPA fallback
   app.get("*", (req, res) => {
     console.log("[SPA]", req.path, "-> index.html");
     res.sendFile(path.join(clientDir, "index.html"));
   });
+
+  function printRoutes(app: any) {
+    console.log("---- ROUTE TABLE ----");
+    app._router.stack.forEach((layer: any, i: number) => {
+      if (layer.route) {
+        const methods = Object.keys(layer.route.methods).join(",").toUpperCase();
+        console.log(i, methods.padEnd(6), layer.route.path);
+      } else if (layer.name === "router" && layer.handle?.stack) {
+        layer.handle.stack.forEach((h: any) => {
+          if (h.route) {
+            const methods = Object.keys(h.route.methods).join(",").toUpperCase();
+            console.log(i, methods.padEnd(6), h.route.path);
+          }
+        });
+      }
+    });
+    console.log("---------------------");
+  }
+  printRoutes(app);
 })();
