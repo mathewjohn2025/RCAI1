@@ -1,8 +1,11 @@
 import { createBrowserRouter, Outlet, useRouteError, Navigate } from 'react-router-dom';
-import Home from './pages/Home';
+import Home from './pages/home';
 import Login from './auth/Login';
-import AdminLayout from './admin/AdminLayout';
-import { adminLoader } from './routes/adminLoader';
+import AdminGate from './components/AdminGate';
+import AdminLogin from './pages/admin-login';
+import AdminSettings from './pages/admin-settings';
+import EvidenceLibrary from './pages/evidence-library-admin';
+import Taxonomy from './pages/admin/taxonomy-management';
 
 function Root() {
   return <Outlet />;
@@ -35,35 +38,13 @@ export const router = createBrowserRouter([
           return { Component: Component.default };
         }
       },
-      {
-        path: 'admin',
-        element: <AdminLayout />,
-        loader: adminLoader,                  // protected ONLY here
-        children: [
-          { 
-            index: true, 
-            lazy: async () => {
-              const module = await import('./pages/admin-settings');
-              return { Component: module.default, loader: module.loader };
-            }
-          },
-          { 
-            path: 'ai/providers', 
-            lazy: async () => {
-              const module = await import('./pages/admin-settings');
-              return { Component: module.default, loader: module.loader };
-            }
-          },
-          { path: 'evidence', element: <div style={{padding:12,background:'#ffef9f'}}>EVIDENCE CANARY</div> },
-          { 
-            path: 'taxonomy', 
-            lazy: async () => {
-              const Component = await import('./pages/admin/taxonomy-management');
-              return { Component: Component.default };
-            }
-          },
-        ],
-      },
+      { path: 'admin/login', element: <AdminLogin /> },
+      // Everything under /admin/* must be gated
+      { path: 'admin', element: <AdminGate><AdminSettings /></AdminGate> },
+      { path: 'admin/settings', element: <AdminGate><AdminSettings /></AdminGate> },
+      { path: 'admin/ai/providers', element: <AdminGate><AdminSettings /></AdminGate> },
+      { path: 'admin/evidence', element: <AdminGate><EvidenceLibrary /></AdminGate> },
+      { path: 'admin/taxonomy', element: <AdminGate><Taxonomy /></AdminGate> },
       
       // NEW: normalize weird encoded paths like "/%3F__seed=…"
       { path: '%3F/*', element: <Navigate to="/" replace /> },

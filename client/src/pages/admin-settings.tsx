@@ -1,22 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { useWhoAmI } from "../hooks/useWhoAmI";
+import { api } from "../lib/api";
 
 export default function AdminSettings() {
-  // 1) Know who we are first
   const { data: me, isLoading: whoLoading } = useWhoAmI();
-  const enabled = !!me?.user && !whoLoading; // <- gate!
+  const enabled = !!me?.user && !whoLoading;
 
-  // 2) Only fetch admin data when enabled === true
   const { data, isLoading, error } = useQuery({
-    queryKey: ["admin", "aiSettings"],
+    queryKey: ["admin","aiSettings"],
     queryFn: async () => {
-      const response = await fetch("/api/admin/ai/providers", { 
-        credentials: "include" 
-      });
-      if (!response.ok) throw new Error("Failed to fetch");
+      const response = await api("/api/admin/ai-settings");
       return response.json();
     },
-    enabled, // <- critical
+    enabled, // ← critical
   });
 
   if (whoLoading) return <div>Loading...</div>;
