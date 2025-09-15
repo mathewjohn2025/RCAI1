@@ -109,11 +109,8 @@ const loginPageHandler = (req: any, res: any) => {
 };
 app.get('/admin/login', loginPageHandler);
 
-// --- ADMIN PAGE GUARD ---
 app.get("/admin/*", (req, res, next) => {
-  // Let the login page render without bouncing
-  if (req.path === "/admin/login") return next();
-
+  if (req.path === "/admin/login") return next(); // do not redirect the login page
   if (!req.session?.user) {
     const rt = encodeURIComponent(req.originalUrl || "/admin");
     return res.redirect(302, `/admin/login?returnTo=${rt}`);
