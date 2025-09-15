@@ -1,0 +1,74 @@
+2 — Client: only navigate after whoami confirms login
+Tell Replit agent (copy-paste):
+File: client/src/pages/AdminLogin.tsx
+Ensure the form uses our api wrapper (which sends cookies) and only redirects once whoami shows a user.
+import { useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { api } from "../api/http";
+
+export default function AdminLogin() {
+  const qc = useQueryClient();
+  const nav = useNavigate();
+  const loc = useLocation();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState("");
+
+  const returnTo = new URLSearchParams(loc.search).get("returnTo") || "/admin/settings";
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setErr("");
+
+    try {
+      await api("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
+
+      // Force whoami to update & wait briefly until it reports a user
+      await qc.invalidateQueries({ queryKey: ["whoami"] });
+      const start = Date.now();
+      while (Date.now() - start < 1500) {
+        const me: any = qc.getQueryData(["whoami"]);
+        if (me?.user) break;
+        await qc.refetchQueries({ queryKey: ["whoami"], exact: true });
+        await new Promise(r => setTimeout(r, 100));
+      }
+
+      // Now that session is confirmed, navigate once
+      nav(returnTo, { replace: true });
+    } catch (e: any) {
+      setErr(e?.body?.error || "Login failed");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {/* uncontrolled inputs avoid flicker */}
+      <input
+        id="email"
+        name="username"
+        type="email"
+        autoComplete="username"
+        defaultValue=""
+        onChange={(e) => setEmail(e.target.value)}
+      />
+      <input
+        id="password"
+        name="password"
+        type="password"
+        autoComplete="current-password"
+        onChange={(e) => setPassword(e.target.value)}
+      />
+      <button type="submit" disabled={submitting}>Sign In</button>
+      {err && <p role="alert">{err}</p>}
+    </form>
+  );
+}
+Make sure useWhoAmI() has refetchOnWindowFocus: false (we added earlier) and AdminGate returns null while loading.
