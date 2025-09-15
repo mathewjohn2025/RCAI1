@@ -387,12 +387,12 @@ app.get('/__spa-debug', (_req, res) => {
   // Serve built assets
   app.use(express.static(clientDir));
 
+  // Optional: keep a health check so we don't add a canary at "/"
+  app.get("/healthz", (_req, res) => res.send("ok"));
+
   // SPA fallback — let React Router handle routes
   app.get("*", (req, res) => {
     console.log("[SPA]", req.path, "-> index.html");
     res.sendFile(path.join(clientDir, "index.html"));
   });
-
-  // Optional: keep a health check so we don't add a canary at "/"
-  app.get("/healthz", (_req, res) => res.send("ok"));
 })();
