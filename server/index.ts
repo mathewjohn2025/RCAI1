@@ -130,7 +130,22 @@ function requireAdmin(req: any, res: any, next: any) {
   return res.status(403).json({ error: 'forbidden' }); // as per specification
 }
 
-app.use('/api/admin', requireAdmin);
+// --- ADMIN API GUARD: standardize statuses (MOVED HERE TO RUN BEFORE ROUTES) ---
+console.log("[STARTUP] Installing admin API guard middleware");
+app.use("/api/admin", (req, res, next) => {
+  console.log("[GUARD:/api/admin] TRIGGERED:", req.method, req.originalUrl);
+  const user = req.session?.user;
+  if (!user) {
+    console.log("[GUARD:/api/admin]", req.method, req.originalUrl, "-> 401 (no session)");
+    return res.status(401).json({ error: "unauthorized" }); // NOT 403
+  }
+  if (!user.roles?.includes("admin")) {
+    console.log("[GUARD:/api/admin]", req.method, req.originalUrl, "-> 403 (not admin)");
+    return res.status(403).json({ error: "forbidden" });
+  }
+  console.log("[GUARD:/api/admin]", req.method, req.originalUrl, "-> PASS (admin access)");
+  next();
+});
 
 // ... your non-admin APIs here ...
 // Health endpoints (before all API routes)
@@ -282,14 +297,6 @@ app.get('/__spa-debug', (_req, res) => {
 });
 
 (async () => {
-  // API admin guard (must be BEFORE registerRoutes)
-  app.use("/api/admin", (req, res, next) => {
-    const authed = !!req.session?.user;
-    console.log("[GUARD:/api/admin]", req.method, req.originalUrl, "authed=", authed);
-    if (!authed) return res.status(401).json({ error: "unauthorized" });
-    next();
-  });
-
   // Register all API routes IMMEDIATELY after admin guards (following exact specification order)
   console.log("[SERVER] Registering API routes directly after admin guards");
   try {
