@@ -9,7 +9,7 @@ export function useWhoAmI() {
       return response.json();
     },
     staleTime: 60_000,
-    refetchOnWindowFocus: false,   // <-- prevent flicker on focus
+    refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
 }

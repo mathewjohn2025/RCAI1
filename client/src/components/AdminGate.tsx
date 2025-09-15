@@ -6,8 +6,7 @@ export default function AdminGate({ children }: { children: JSX.Element }) {
   const loc = useLocation();
   if (isLoading) return null;
 
-  const user = data?.user ?? null;
-  if (!user) {
+  if (!data?.authenticated) {
     const raw = loc.pathname + loc.search; // not encoded
     const returnTo = encodeURIComponent(raw); // encode only the value
     return (
