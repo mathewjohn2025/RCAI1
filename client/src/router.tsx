@@ -28,6 +28,13 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Home /> },     // public
       { path: 'login', element: <Login /> },  // public
+      { 
+        path: 'incidents/new', 
+        lazy: async () => {
+          const Component = await import('./pages/incident-reporting');
+          return { Component: Component.default };
+        }
+      },
       {
         path: 'admin',
         element: <AdminLayout />,
