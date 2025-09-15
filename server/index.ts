@@ -114,14 +114,6 @@ const loginPageHandler = (req: any, res: any) => {
 };
 app.get('/admin/login', loginPageHandler);
 
-// 3) ADMIN HTML GUARD — must run BEFORE static & SPA fallback
-app.get('/admin/*', (req, res, next) => {
-  if (!req.session?.user) {
-    const rt = encodeURIComponent(req.originalUrl);
-    return res.redirect(302, `/admin/login?returnTo=${rt}`);
-  }
-  return next();
-});
 
 // --- UNIFIED ADMIN API GUARD (place BEFORE admin routers) ---
 app.use("/api/admin", (req, res, next) => {
@@ -297,17 +289,6 @@ app.get('/__spa-debug', (_req, res) => {
     throw error;
   }
 
-  // --- ADMIN PAGE GUARD (must be BEFORE static + SPA fallback) ---
-  app.get("/admin/*", (req, res, next) => {
-    const authed = !!req.session?.user;
-    console.log("[GUARD:/admin/*] authed=%s url=%s", authed, req.originalUrl);
-    if (!authed) {
-      const rt = encodeURIComponent(req.originalUrl || "/admin");
-      console.log("[GUARD:/admin/*] -> 302 to /admin/login?returnTo=%s", rt);
-      return res.redirect(302, `/admin/login?returnTo=${rt}`);
-    }
-    next();
-  });
 
 
   // CRITICAL FIX: Force built frontend mode to bypass Vite middleware API interception
