@@ -131,7 +131,7 @@ app.use("/api/admin", (req, res, next) => {
     return res.status(401).json({ error: "unauthorized" }); // not 403
   }
   // if you have roles:
-  if (user.role !== "admin") {
+  if (!user.roles?.includes("admin")) {
     console.log("[GUARD:/api/admin]", req.method, req.originalUrl, "-> 403 (not admin)");
     return res.status(403).json({ error: "forbidden" });
   }

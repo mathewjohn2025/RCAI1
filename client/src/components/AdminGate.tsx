@@ -1,22 +1,13 @@
-import { Navigate, Outlet, useLocation } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { Navigate, useLocation } from "react-router-dom";
+import { useWhoAmI } from "../hooks/useWhoAmI";
 
-// EXACT SPECIFICATION: AdminGate blocks render until authentication confirmed
-const AdminGate = () => {
+export default function AdminGate({ children }: { children: JSX.Element }) {
+  const { data, isLoading } = useWhoAmI();
   const loc = useLocation();
-  const { data, isLoading } = useQuery({
-    queryKey: ['whoami'],
-    queryFn: () => fetch('/api/auth/whoami', { credentials:'include' }).then(r => r.json()),
-    staleTime: 0,
-    gcTime: 0, // cacheTime renamed to gcTime in v5
-    refetchOnMount: 'always'
-  });
-
-  if (isLoading) return null; // or spinner; DO NOT render admin shell yet
+  if (isLoading) return null; // prevent early renders/requests
   if (!data?.user) {
-    return <Navigate to={`/admin/login?returnTo=${encodeURIComponent(loc.pathname+loc.search)}`} replace />;
+    const rt = encodeURIComponent(loc.pathname + loc.search);
+    return <Navigate to={`/admin/login?returnTo=${rt}`} replace />;
   }
-  return <Outlet/>;
-};
-
-export default AdminGate;
+  return children;
+}
