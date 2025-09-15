@@ -292,6 +292,15 @@ app.get('/__spa-debug', (_req, res) => {
     throw error;
   }
 
+  // --- ADMIN PAGE GUARD: 302 redirect if not authed ---
+  app.get("/admin/*", (req, res, next) => {
+    if (!req.session?.user) {
+      const rt = encodeURIComponent(req.originalUrl || "/admin");
+      return res.redirect(302, `/admin/login?returnTo=${rt}`);
+    }
+    next();
+  });
+
   // 1) Serve static assets from the production build
   const dist = path.resolve(__dirname, '../dist/public');
   app.use(express.static(dist));
