@@ -140,7 +140,6 @@ app.use("/api/admin", (req, res, next) => {
 
 // ... your non-admin APIs here ...
 // Health endpoints (before all API routes)
-app.get('/healthz', (_req, res) => res.status(200).send('ok'));
 app.get('/version.json', (_req, res) => res.json({ build: process.env.BUILD_ID || 'dev' }));
 
 // ========== AUTH ROUTES ==========
@@ -374,16 +373,26 @@ app.get('/__spa-debug', (_req, res) => {
     });
   });
 
-  const clientDir = path.join(process.cwd(), "dist", "public");
+  // Pick the right built frontend dir
+  const candidates = [
+    path.join(process.cwd(), "dist", "public"),   // common in your logs
+    path.join(process.cwd(), "client", "dist"),   // common in Vite setups
+  ];
+  const clientDir = candidates.find(p => fs.existsSync(path.join(p, "index.html")));
+  if (!clientDir) {
+    console.error("[SPA] index.html not found in:", candidates);
+    process.exit(1);
+  }
 
   // Serve built assets
-  app.use(express.static(clientDir, {
-    setHeaders: (_, p) => console.log("[STATIC]", p)
-  }));
+  app.use(express.static(clientDir));
 
   // SPA fallback — let React Router handle routes
   app.get("*", (req, res) => {
     console.log("[SPA]", req.path, "-> index.html");
     res.sendFile(path.join(clientDir, "index.html"));
   });
+
+  // Optional: keep a health check so we don't add a canary at "/"
+  app.get("/healthz", (_req, res) => res.send("ok"));
 })();
