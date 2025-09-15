@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 interface AutosaveConfig {
@@ -49,7 +49,7 @@ export function useAutosave(config: AutosaveConfig) {
     mutationFn: async (payload: RcaHistoryPayload) => {
       console.log(`[AUTOSAVE] Saving step ${stepNumber} data for incident ${incidentId}`);
       
-      return apiRequest(`/api/incidents/${incidentId}/history`, {
+      return api(`/api/incidents/${incidentId}/history`, {
         method: 'PUT',
         body: JSON.stringify({
           lastStep: stepNumber,

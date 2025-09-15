@@ -18648,7 +18648,7 @@ JSON array only:`;
     console.error("[AI Contributing Factors] Error:", error);
     return ["AI configuration required - Please configure AI provider in admin settings"];
   }
-  const requireAdmin4 = async (req, res, next) => {
+  const requireAdmin3 = async (req, res, next) => {
     try {
       if (!req.isAuthenticated() || !req.user) {
         return res.status(401).json({ message: "Authentication required" });
@@ -18671,7 +18671,7 @@ JSON array only:`;
       res.status(500).json({ message: "Authentication error" });
     }
   };
-  app.get("/api/admin/fault-reference-library", requireAdmin4, async (req, res) => {
+  app.get("/api/admin/fault-reference-library", requireAdmin3, async (req, res) => {
     try {
       const entries = await investigationStorage.getAllFaultReferenceLibrary();
       res.json(entries);
@@ -18680,7 +18680,7 @@ JSON array only:`;
       res.status(500).json({ message: "Failed to retrieve fault reference library" });
     }
   });
-  app.get("/api/admin/fault-reference-library/search", requireAdmin4, async (req, res) => {
+  app.get("/api/admin/fault-reference-library/search", requireAdmin3, async (req, res) => {
     try {
       const { q: searchTerm, evidenceType } = req.query;
       const entries = await investigationStorage.searchFaultReferenceLibrary(
@@ -18693,7 +18693,7 @@ JSON array only:`;
       res.status(500).json({ message: "Failed to search fault reference library" });
     }
   });
-  app.get("/api/admin/fault-reference-library/:id", requireAdmin4, async (req, res) => {
+  app.get("/api/admin/fault-reference-library/:id", requireAdmin3, async (req, res) => {
     try {
       const { id } = req.params;
       const entry = await investigationStorage.getFaultReferenceLibraryById(id);
@@ -18706,7 +18706,7 @@ JSON array only:`;
       res.status(500).json({ message: "Failed to retrieve fault reference library entry" });
     }
   });
-  app.post("/api/admin/fault-reference-library", requireAdmin4, async (req, res) => {
+  app.post("/api/admin/fault-reference-library", requireAdmin3, async (req, res) => {
     try {
       const validatedData = insertFaultReferenceLibrarySchema.parse(req.body);
       const entry = await investigationStorage.createFaultReferenceLibrary(validatedData);
@@ -18719,7 +18719,7 @@ JSON array only:`;
       res.status(500).json({ message: "Failed to create fault reference library entry" });
     }
   });
-  app.put("/api/admin/fault-reference-library/:id", requireAdmin4, async (req, res) => {
+  app.put("/api/admin/fault-reference-library/:id", requireAdmin3, async (req, res) => {
     try {
       const { id } = req.params;
       const validatedData = insertFaultReferenceLibrarySchema.partial().parse(req.body);
@@ -18733,7 +18733,7 @@ JSON array only:`;
       res.status(500).json({ message: "Failed to update fault reference library entry" });
     }
   });
-  app.delete("/api/admin/fault-reference-library/:id", requireAdmin4, async (req, res) => {
+  app.delete("/api/admin/fault-reference-library/:id", requireAdmin3, async (req, res) => {
     try {
       const { id } = req.params;
       await investigationStorage.deleteFaultReferenceLibrary(id);
@@ -18743,7 +18743,7 @@ JSON array only:`;
       res.status(500).json({ message: "Failed to delete fault reference library entry" });
     }
   });
-  app.get("/api/admin/fault-reference-library/export/csv", requireAdmin4, async (req, res) => {
+  app.get("/api/admin/fault-reference-library/export/csv", requireAdmin3, async (req, res) => {
     try {
       const entries = await investigationStorage.getAllFaultReferenceLibrary();
       const csvData = Papa.unparse(entries.map((entry) => ({
@@ -18767,7 +18767,7 @@ JSON array only:`;
       res.status(500).json({ message: "Failed to export fault reference library" });
     }
   });
-  app.get("/api/admin/fault-reference-library/export/excel", requireAdmin4, async (req, res) => {
+  app.get("/api/admin/fault-reference-library/export/excel", requireAdmin3, async (req, res) => {
     try {
       const entries = await investigationStorage.getAllFaultReferenceLibrary();
       const worksheet = XLSX.utils.json_to_sheet(entries.map((entry) => ({
@@ -18794,7 +18794,7 @@ JSON array only:`;
       res.status(500).json({ message: "Failed to export fault reference library" });
     }
   });
-  app.post("/api/admin/fault-reference-library/import", requireAdmin4, upload.single("file"), async (req, res) => {
+  app.post("/api/admin/fault-reference-library/import", requireAdmin3, upload.single("file"), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ message: "No file uploaded" });
@@ -19379,7 +19379,7 @@ JSON array only:`;
         res.status(500).json({ code: "SERVER_ERROR", message: "Logout failed" });
       }
     });
-    app.get("/api/admin/users", requireAdmin4, async (req, res) => {
+    app.get("/api/admin/users", requireAdmin3, async (req, res) => {
       try {
         const result = await db.select({
           id: users2.id,
@@ -19402,7 +19402,7 @@ JSON array only:`;
         res.status(500).json({ code: "SERVER_ERROR", message: "Failed to fetch users" });
       }
     });
-    app.post("/api/admin/users", requireAdmin4, inviteRateLimit2, async (req, res) => {
+    app.post("/api/admin/users", requireAdmin3, inviteRateLimit2, async (req, res) => {
       try {
         const { email, firstName, lastName, password, roleIds = [] } = req.body;
         if (!email || !password) {
@@ -19449,7 +19449,7 @@ JSON array only:`;
         res.status(500).json({ code: "SERVER_ERROR", message: "Failed to create user" });
       }
     });
-    app.put("/api/admin/users/:userId", requireAdmin4, async (req, res) => {
+    app.put("/api/admin/users/:userId", requireAdmin3, async (req, res) => {
       try {
         const { userId } = req.params;
         const { firstName, lastName, isActive, roleIds } = req.body;
@@ -19482,7 +19482,7 @@ JSON array only:`;
         res.status(500).json({ code: "SERVER_ERROR", message: "Failed to update user" });
       }
     });
-    app.delete("/api/admin/users/:userId", requireAdmin4, async (req, res) => {
+    app.delete("/api/admin/users/:userId", requireAdmin3, async (req, res) => {
       try {
         const { userId } = req.params;
         if (userId === req.session.user?.id) {
@@ -19499,7 +19499,7 @@ JSON array only:`;
         res.status(500).json({ code: "SERVER_ERROR", message: "Failed to delete user" });
       }
     });
-    app.get("/api/admin/roles", requireAdmin4, async (req, res) => {
+    app.get("/api/admin/roles", requireAdmin3, async (req, res) => {
       try {
         const allRoles = await db.select().from(roles2).orderBy(roles2.name);
         res.json({ roles: allRoles });
@@ -19508,7 +19508,7 @@ JSON array only:`;
         res.status(500).json({ code: "SERVER_ERROR", message: "Failed to fetch roles" });
       }
     });
-    app.post("/api/admin/roles", requireAdmin4, async (req, res) => {
+    app.post("/api/admin/roles", requireAdmin3, async (req, res) => {
       try {
         const { name, description } = req.body;
         if (!name) {
@@ -19730,20 +19730,18 @@ var loginPageHandler = (req, res) => {
   </script></body></html>`);
 };
 app2.get("/admin/login", loginPageHandler);
-app2.get("/admin/*", (req, res, next) => {
-  if (!req.session?.user) {
-    const rt = encodeURIComponent(req.originalUrl);
-    return res.redirect(302, `/admin/login?returnTo=${rt}`);
+app2.use("/api/admin", (req, res, next) => {
+  const user = req.session?.user;
+  if (!user) {
+    console.log("[GUARD:/api/admin]", req.method, req.originalUrl, "-> 401 (no session)");
+    return res.status(401).json({ error: "unauthorized" });
   }
-  return next();
+  if (!user.roles?.includes("admin")) {
+    console.log("[GUARD:/api/admin]", req.method, req.originalUrl, "-> 403 (not admin)");
+    return res.status(403).json({ error: "forbidden" });
+  }
+  next();
 });
-function requireAdmin3(req, res, next) {
-  if (req.session?.user?.roles?.includes("admin")) return next();
-  res.set("Cache-Control", "no-store");
-  return res.status(403).json({ error: "forbidden" });
-}
-app2.use("/api/admin", requireAdmin3);
-app2.get("/healthz", (_req, res) => res.status(200).send("ok"));
 app2.get("/version.json", (_req, res) => res.json({ build: process.env.BUILD_ID || "dev" }));
 app2.get("/api/auth/whoami", (req, res) => {
   const user = req.session?.user;
@@ -19811,14 +19809,14 @@ app2.post("/api/auth/logout", (req, res) => {
     res.json({ ok: true });
   });
 });
-app2.get("/api/admin/bootstrap", requireAdmin3, (_req, res) => {
+app2.get("/api/admin/bootstrap", (_req, res) => {
   res.set("Cache-Control", "no-store");
   res.json({
     features: ["ai_settings", "evidence_library", "taxonomy"]
     // add whatever you want visible
   });
 });
-app2.get("/api/admin/canary", requireAdmin3, (_req, res) => {
+app2.get("/api/admin/canary", (_req, res) => {
   res.set("Cache-Control", "no-store");
   res.json({ ok: true, now: (/* @__PURE__ */ new Date()).toISOString() });
 });
@@ -19862,18 +19860,6 @@ app2.get("/__spa-debug", (_req, res) => {
     console.error("[SERVER] CRITICAL ERROR in registerRoutes:", error);
     throw error;
   }
-  const dist = path5.resolve(__dirname, "../dist/public");
-  app2.use(express2.static(dist));
-  app2.get("/", (_req, res) => {
-    res.set("Cache-Control", "no-store");
-    res.set("X-Root-HTML", "1");
-    res.sendFile(path5.join(dist, "index.html"));
-  });
-  app2.get(/^\/(?!api\/).*/, (_req, res) => {
-    res.set("Cache-Control", "no-store");
-    res.set("X-SPA-Fallback", "index.html");
-    res.sendFile(path5.join(dist, "index.html"));
-  });
   const forceBuiltMode = true;
   let server;
   if (app2.get("env") === "development" && !forceBuiltMode) {
@@ -19887,24 +19873,42 @@ app2.get("/__spa-debug", (_req, res) => {
     });
   } else {
     log("\u{1F680} SERVING BUILT FRONTEND - Bypassing Vite middleware API interception");
-    const publicPath = path5.resolve(process.cwd(), "dist/public");
-    app2.use(express2.static(publicPath, {
-      setHeaders: (res, filePath) => {
-        if (filePath.endsWith(".html")) {
-          res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-          res.setHeader("Pragma", "no-cache");
-          res.setHeader("Expires", "0");
-        } else {
-          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-        }
-      }
-    }));
-    app2.get("*", (_req, res) => {
-      res.sendFile(path5.join(publicPath, "index.html"));
-    });
     server = createServer2(app2);
     log("\u2705 Built frontend active - API calls now reach backend directly");
   }
+  const candidates = [
+    path5.join(process.cwd(), "dist", "public"),
+    path5.join(process.cwd(), "client", "dist")
+  ];
+  const clientDir = candidates.find((p) => fs6.existsSync(path5.join(p, "index.html")));
+  if (!clientDir) {
+    console.error("[SPA] index.html not found in", candidates);
+    process.exit(1);
+  }
+  app2.use(express2.static(clientDir));
+  app2.get("/healthz", (_req, res) => res.send("ok"));
+  app2.get("*", (req, res) => {
+    console.log("[SPA]", req.path, "-> index.html");
+    res.sendFile(path5.join(clientDir, "index.html"));
+  });
+  function printRoutes(app3) {
+    console.log("---- ROUTE TABLE ----");
+    app3._router.stack.forEach((layer, i) => {
+      if (layer.route) {
+        const methods = Object.keys(layer.route.methods).join(",").toUpperCase();
+        console.log(i, methods.padEnd(6), layer.route.path);
+      } else if (layer.name === "router" && layer.handle?.stack) {
+        layer.handle.stack.forEach((h) => {
+          if (h.route) {
+            const methods = Object.keys(h.route.methods).join(",").toUpperCase();
+            console.log(i, methods.padEnd(6), h.route.path);
+          }
+        });
+      }
+    });
+    console.log("---------------------");
+  }
+  printRoutes(app2);
   const port = parseInt(process.env.PORT || "5000", 10);
   console.log("\u{1F512} Universal Protocol Standard enforcement active via Git hooks and CI/CD");
   console.log("\u{1F512} Production authentication system active");

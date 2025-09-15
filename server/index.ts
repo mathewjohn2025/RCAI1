@@ -314,6 +314,45 @@ app.get('/__spa-debug', (_req, res) => {
     log("✅ Built frontend active - API calls now reach backend directly");
   }
 
+  // Locate built client (match current build layout)
+  const candidates = [
+    path.join(process.cwd(), "dist", "public"),
+    path.join(process.cwd(), "client", "dist"),
+  ];
+  const clientDir = candidates.find(p => fs.existsSync(path.join(p, "index.html")));
+  if (!clientDir) { console.error("[SPA] index.html not found in", candidates); process.exit(1); }
+
+  // Serve static assets
+  app.use(express.static(clientDir));
+
+  // Health check (keep this; do NOT add a canary at "/")
+  app.get("/healthz", (_req, res) => res.send("ok"));
+
+  // SPA fallback
+  app.get("*", (req, res) => {
+    console.log("[SPA]", req.path, "-> index.html");
+    res.sendFile(path.join(clientDir, "index.html"));
+  });
+
+  function printRoutes(app: any) {
+    console.log("---- ROUTE TABLE ----");
+    app._router.stack.forEach((layer: any, i: number) => {
+      if (layer.route) {
+        const methods = Object.keys(layer.route.methods).join(",").toUpperCase();
+        console.log(i, methods.padEnd(6), layer.route.path);
+      } else if (layer.name === "router" && layer.handle?.stack) {
+        layer.handle.stack.forEach((h: any) => {
+          if (h.route) {
+            const methods = Object.keys(h.route.methods).join(",").toUpperCase();
+            console.log(i, methods.padEnd(6), h.route.path);
+          }
+        });
+      }
+    });
+    console.log("---------------------");
+  }
+  printRoutes(app);
+
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.
@@ -353,43 +392,4 @@ app.get('/__spa-debug', (_req, res) => {
       process.exit(0);
     });
   });
-
-  // Locate built client (match current build layout)
-  const candidates = [
-    path.join(process.cwd(), "dist", "public"),
-    path.join(process.cwd(), "client", "dist"),
-  ];
-  const clientDir = candidates.find(p => fs.existsSync(path.join(p, "index.html")));
-  if (!clientDir) { console.error("[SPA] index.html not found in", candidates); process.exit(1); }
-
-  // Serve static assets
-  app.use(express.static(clientDir));
-
-  // Health check (keep this; do NOT add a canary at "/")
-  app.get("/healthz", (_req, res) => res.send("ok"));
-
-  // SPA fallback
-  app.get("*", (req, res) => {
-    console.log("[SPA]", req.path, "-> index.html");
-    res.sendFile(path.join(clientDir, "index.html"));
-  });
-
-  function printRoutes(app: any) {
-    console.log("---- ROUTE TABLE ----");
-    app._router.stack.forEach((layer: any, i: number) => {
-      if (layer.route) {
-        const methods = Object.keys(layer.route.methods).join(",").toUpperCase();
-        console.log(i, methods.padEnd(6), layer.route.path);
-      } else if (layer.name === "router" && layer.handle?.stack) {
-        layer.handle.stack.forEach((h: any) => {
-          if (h.route) {
-            const methods = Object.keys(h.route.methods).join(",").toUpperCase();
-            console.log(i, methods.padEnd(6), h.route.path);
-          }
-        });
-      }
-    });
-    console.log("---------------------");
-  }
-  printRoutes(app);
 })();
