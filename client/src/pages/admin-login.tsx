@@ -39,10 +39,8 @@ export default function AdminLogin() {
       if (!res.ok) throw new Error('login_failed');
       const { redirectTo } = await res.json();
 
-      // OPTIONAL: one fresh whoami to ensure gate will pass after nav
-      await fetch('/api/admin/whoami', { credentials: 'include', cache: 'no-store' });
-
-      navigate(redirectTo || '/admin', { replace: true });
+      // Hard navigation to avoid any SPA race conditions with fresh cookies
+      window.location.replace(redirectTo || '/admin/settings');
     } finally {
       setSubmitting(false);
     }

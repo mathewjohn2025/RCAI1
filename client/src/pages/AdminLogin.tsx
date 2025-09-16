@@ -1,7 +1,5 @@
 import React, { useRef, useEffect, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
-import { api } from "../lib/api";
+import { useLocation } from "react-router-dom";
 
 function AdminLoginInner() {
   const emailRef = useRef<HTMLInputElement>(null);
@@ -11,9 +9,7 @@ function AdminLoginInner() {
 
   useEffect(() => { emailRef.current?.focus(); }, []); // focus once only
 
-  const nav = useNavigate();
   const loc = useLocation();
-  const qc = useQueryClient();
 
   function getReturnTo() {
     const params = new URLSearchParams(loc.search);
@@ -31,21 +27,16 @@ function AdminLoginInner() {
     try {
       const email = emailRef.current?.value || "";
       const password = passRef.current?.value || "";
-      await api("/api/auth/login", {
-        method: "POST",
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email, password }),
       });
+      if (!res.ok) throw new Error('login_failed');
 
-      // Wait briefly until whoami sees the session once
-      await qc.invalidateQueries({ queryKey: ["whoami"] });
-      const t0 = Date.now();
-      while (Date.now() - t0 < 1500) {
-        const me: any = qc.getQueryData(["whoami"]);
-        if (me?.user) break;
-        await qc.refetchQueries({ queryKey: ["whoami"], exact: true });
-        await new Promise(r => setTimeout(r, 100));
-      }
-      nav(getReturnTo(), { replace: true });
+      // Hard navigation to avoid any SPA race conditions with fresh cookies
+      window.location.replace(getReturnTo());
     } catch (e: any) {
       setErr(e?.body?.error || "Login failed");
     } finally {
