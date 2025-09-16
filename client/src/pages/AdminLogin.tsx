@@ -35,8 +35,9 @@ function AdminLoginInner() {
       });
       if (!res.ok) throw new Error('login_failed');
 
-      // Hard navigation to avoid any SPA race conditions with fresh cookies
-      window.location.replace(getReturnTo());
+      // Use server's redirectTo response for hard navigation to avoid SPA race conditions
+      const { redirectTo } = await res.json();
+      window.location.replace(redirectTo || '/admin/settings');
     } catch (e: any) {
       setErr(e?.body?.error || "Login failed");
     } finally {
