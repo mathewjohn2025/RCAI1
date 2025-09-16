@@ -119,7 +119,7 @@ app.use("/api/admin", (req, res, next) => {
 // Health endpoints (before all API routes)
 app.get('/version.json', (_req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
-  res.json({ build: process.env.BUILD_ID || 'dev' });
+  res.json({ buildTag: process.env.VITE_BUILD_TAG || '2025-09-16T14:42:22.433Z' });
 });
 
 // ========== AUTH ROUTES ==========
