@@ -7,7 +7,7 @@
 export async function api(url: string, init: RequestInit = {}) {
   const res = await fetch(url, { credentials: 'include', cache: 'no-store', ...init });
   if (res.status === 401 || res.status === 403) {
-    window.location.assign('/login');
+    window.location.replace('/admin/login');
     throw new Error('Unauthorized');
   }
   return res;

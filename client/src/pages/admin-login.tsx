@@ -19,7 +19,7 @@ export default function AdminLogin() {
         const d = await r.json();
         if (d?.user && !didAutoRedirect.current) {
           didAutoRedirect.current = true;
-          navigate(sp.get('returnTo') || '/admin', { replace: true });
+          navigate(sp.get('returnTo') || '/admin/settings', { replace: true });
         }
       }
     })();

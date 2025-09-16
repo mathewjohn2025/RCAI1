@@ -2,6 +2,7 @@ import { createBrowserRouter, Outlet, useRouteError, Navigate } from 'react-rout
 import Home from './pages/home';
 import Login from './auth/Login';
 import AdminGate from './components/AdminGate';
+import AdminLayout from './admin/AdminLayout';
 import AdminLogin from './pages/admin-login';
 import AdminSettings from './pages/admin-settings';
 import EvidenceLibrary from './pages/evidence-library-admin';
@@ -42,7 +43,7 @@ export const router = createBrowserRouter([
       // Everything under /admin/* must be gated
       { 
         path: 'admin', 
-        element: <AdminGate><Outlet /></AdminGate>,
+        element: <AdminGate><AdminLayout /></AdminGate>,
         children: [
           { index: true, element: <Navigate to="settings" replace /> },
           { path: 'settings', element: <AdminSettings /> },

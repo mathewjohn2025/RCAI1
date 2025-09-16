@@ -1,0 +1,96 @@
+apply in this order
+1) Keep ONE AdminLayout, delete the other
+Keep: client/src/admin/AdminLayout.tsx
+Delete: client/src/components/AdminLayout.tsx
+If other files import from components/AdminLayout, add a tiny re-export so builds don’t break:
+// client/src/components/AdminLayout.tsx  (temporary shim; delete later)
+export { default } from '../admin/AdminLayout';
+2) Make AdminLayout pure (no redirects, no whoami, no effects)
+Replace the kept layout with this minimal, side-effect-free version:
+// client/src/admin/AdminLayout.tsx
+import { Outlet, NavLink } from 'react-router-dom';
+
+export default function AdminLayout() {
+  return (
+    <div className="min-h-screen grid grid-rows-[auto,1fr]">
+      <header className="border-b p-4 flex items-center gap-4">
+        <h1 className="font-semibold">Admin</h1>
+        <nav className="flex gap-3">
+          <NavLink to="/admin/settings">Settings</NavLink>
+          {/* add other admin links here */}
+        </nav>
+        <div className="ml-auto">
+          {/* Put LogoutButton in header if you like */}
+        </div>
+      </header>
+      <main className="p-4">
+        <Outlet />
+      </main>
+    </div>
+  );
+}
+No useEffect, no navigate, no whoami here. The only place that decides access is AdminGate.
+3) Router: gate the admin area; /admin must resolve inside admin
+Make sure your routes look like this (only one layout used):
+import AdminLayout from './admin/AdminLayout';
+import AdminLogin from './admin/AdminLogin';
+import AdminSettings from './admin/pages/AdminSettings';
+import { AdminGate } from './gates/AdminGate';
+
+<Routes>
+  <Route path="/" element={<Home/>} />
+
+  {/* login OUTSIDE the gate */}
+  <Route path="/admin/login" element={<AdminLogin/>} />
+
+  {/* gate wraps ALL admin pages */}
+  <Route path="/admin" element={<AdminGate><AdminLayout/></AdminGate>}>
+    <Route index element={<Navigate to="settings" replace />} />
+    <Route path="settings" element={<AdminSettings/>} />
+    {/* ...other admin pages... */}
+  </Route>
+
+  <Route path="*" element={<NotFound/>} />
+</Routes>
+4) Replace every navigate('/') in admin code
+These are what Replit found causing the bounce. Replace them like this:
+•	In logout handlers only → leave admin explicitly to the login page:
+// client/src/components/LogoutButton.tsx
+import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+
+export function LogoutButton() {
+  const nav = useNavigate();
+  const qc = useQueryClient();
+
+  const onLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(()=>{});
+    await qc.clear(); // or invalidateQueries if you prefer
+    window.location.replace('/admin/login'); // hard nav to avoid SPA races
+  };
+
+  return <button onClick={onLogout}>Log out</button>;
+}
+•	Everywhere else inside admin (including old error handlers, effects, or layouts) → do not navigate to /. If you were trying to handle unauth, that’s the gate’s job. Delete those calls. If you were trying to handle a 401 globally, send users to /admin/login instead of /.
+Global fetch/axios interceptor example fix:
+// if you have a global 401 handler
+if (resp.status === 401) {
+  window.location.replace('/admin/login');
+  return;
+}
+Quick find & fix
+Run these and remove/replace each match:
+grep -R --line-number "navigate('/')" client/src
+grep -R --line-number "to=\"/\"" client/src | grep -i Navigate
+grep -R --line-number "window.location.replace('/')" client/src
+grep -R --line-number "window.location.href = '/'" client/src
+Only the LogoutButton should leave admin, and it should go to /admin/login.
+5) Post-login target must be inside admin
+On the server make sure the login response never points at /:
+// after req.session.save(...)
+const redirectTo = req.session.returnTo || '/admin/settings';
+res.json({ ok: true, redirectTo });
+On the client login page, keep the hard navigation (no SPA race):
+const { redirectTo } = await res.json();
+window.location.replace(redirectTo || '/admin/settings');
+
