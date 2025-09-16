@@ -103,6 +103,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  // DEBUG: Cookie probe endpoint for testing cookie functionality
+  const { cookieProbe } = await import('./dev/cookie-probe');
+  app.get('/api/dev/cookie-probe', cookieProbe);
+
   // NEW DATABASE-ONLY AI SETTINGS ROUTES
   const { router: aiSettingsRouter } = await import('./routes/aiSettings');
   app.use(aiSettingsRouter);
