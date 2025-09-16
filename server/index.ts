@@ -91,32 +91,7 @@ app.use(session({
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: false }));
 
-// LOGIN PAGE must be BEFORE any /admin/* guard
-const loginPageHandler = (req: any, res: any) => {
-  res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.end(`<!doctype html><html><body>
-  <h1>Admin Sign in</h1>
-  <form id="f"><input name="email" placeholder="Email"/><input name="password" type="password" placeholder="Password"/>
-  <button>Sign in</button><div id="m"></div></form>
-  <script>
-    f.onsubmit = async (e)=>{e.preventDefault();
-      const fd=new FormData(f);
-      const r=await fetch('/api/auth/login',{method:'POST',credentials:'include',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({email:fd.get('email'),password:fd.get('password'),
-          returnTo:new URLSearchParams(location.search).get('returnTo')})});
-      const j = await r.json(); if(r.ok) location.href=j.returnTo; else m.textContent='Login failed';
-    };
-  </script></body></html>`);
-};
-app.get('/admin/login', (req, res, next) => {
-  const rt = typeof req.query.returnTo === 'string' ? req.query.returnTo : undefined;
-  // Remember once per visit; don't overwrite if already present
-  if (!req.session.returnTo) {
-    req.session.returnTo = sanitizeReturnTo(rt || req.get('referer') || '/admin');
-  }
-  next();
-}, loginPageHandler);
+// LOGIN PAGE now handled by SPA - no server handler needed
 
 app.get("/admin/*", (req, res, next) => {
   if (req.path === "/admin/login") return next(); // do not redirect the login page
