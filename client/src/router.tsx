@@ -40,11 +40,17 @@ export const router = createBrowserRouter([
       },
       { path: 'admin/login', element: <AdminLogin /> },
       // Everything under /admin/* must be gated
-      { path: 'admin', element: <AdminGate><AdminSettings /></AdminGate> },
-      { path: 'admin/settings', element: <AdminGate><AdminSettings /></AdminGate> },
-      { path: 'admin/ai/providers', element: <AdminGate><AdminSettings /></AdminGate> },
-      { path: 'admin/evidence', element: <AdminGate><EvidenceLibrary /></AdminGate> },
-      { path: 'admin/taxonomy', element: <AdminGate><Taxonomy /></AdminGate> },
+      { 
+        path: 'admin', 
+        element: <AdminGate><Outlet /></AdminGate>,
+        children: [
+          { index: true, element: <Navigate to="settings" replace /> },
+          { path: 'settings', element: <AdminSettings /> },
+          { path: 'ai/providers', element: <AdminSettings /> },
+          { path: 'evidence', element: <EvidenceLibrary /> },
+          { path: 'taxonomy', element: <Taxonomy /> },
+        ]
+      },
       
       // NEW: normalize weird encoded paths like "/%3F__seed=…"
       { path: '%3F/*', element: <Navigate to="/" replace /> },
