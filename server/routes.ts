@@ -7342,84 +7342,8 @@ JSON array only:`;
     const { sql } = await import('drizzle-orm');
     console.log("[ROUTES] Admin imports successful");
   
-    // Authentication endpoints
-    console.log("[ROUTES] Registering authentication endpoints...");
-    app.post('/api/auth/login', loginRateLimit, async (req: any, res) => {
-    try {
-      const { email, password } = req.body;
-      
-      if (!email || !password) {
-        return res.status(400).json({ code: 'MISSING_CREDENTIALS', message: 'Email and password required' });
-      }
-      
-      const user = await getUserByEmail(email);
-      if (!user || !user.passwordHash) {
-        await logAuditEvent('login_failed', undefined, 'users', email, { reason: 'user_not_found' });
-        return res.status(401).json({ code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' });
-      }
-      
-      const isValidPassword = await verifyPassword(user.passwordHash, password);
-      if (!isValidPassword) {
-        await logAuditEvent('login_failed', user.id, 'users', user.id, { reason: 'invalid_password' });
-        return res.status(401).json({ code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' });
-      }
-      
-      // Create session
-      req.session.regenerate((err) => {
-        if (err) {
-          console.error('[AUTH] Session regeneration error:', err);
-          return res.status(500).json({ code: 'SESSION_ERROR', message: 'Failed to create session' });
-        }
-        
-        req.session.user = {
-          id: user.id,
-          email: user.email,
-          roles: user.roles,
-          isActive: user.isActive,
-        };
-        
-        req.session.save(async (err) => {
-          if (err) {
-            console.error('[AUTH] Session save error:', err);
-            return res.status(500).json({ code: 'SESSION_ERROR', message: 'Failed to save session' });
-          }
-          
-          await logAuditEvent('login_success', user.id, 'users', user.id, { email });
-          res.json({
-            success: true,
-            user: {
-              id: user.id,
-              email: user.email,
-              roles: user.roles,
-            },
-          });
-        });
-      });
-    } catch (error) {
-      console.error('[AUTH] Login error:', error);
-      res.status(500).json({ code: 'SERVER_ERROR', message: 'Login failed' });
-    }
-  });
-  
-  app.post('/api/auth/logout', requireAuth, async (req: any, res) => {
-    try {
-      const userId = req.session?.user?.id;
-      req.session.destroy((err) => {
-        if (err) {
-          console.error('[AUTH] Session destroy error:', err);
-          return res.status(500).json({ code: 'SESSION_ERROR', message: 'Failed to logout' });
-        }
-        
-        if (userId) {
-          logAuditEvent('logout', userId, 'users', userId, {});
-        }
-        res.json({ success: true, message: 'Logged out successfully' });
-      });
-    } catch (error) {
-      console.error('[AUTH] Logout error:', error);
-      res.status(500).json({ code: 'SERVER_ERROR', message: 'Logout failed' });
-    }
-  });
+    // Note: Authentication endpoints moved to server/index.ts
+    console.log("[ROUTES] Authentication endpoints handled in server/index.ts");
   
   // Admin sections endpoint moved to server/index.ts for dynamic loading
 

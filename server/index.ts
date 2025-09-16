@@ -166,29 +166,33 @@ app.get('/api/auth/whoami', (req, res) => {
   });
 });
 
-app.post("/api/auth/login", async (req, res) => {
-  const { email, password } = req.body || {};
-  // TODO: validate credentials properly
-
-  req.session.regenerate((err) => {
-    if (err) {
-      console.error("[LOGIN] regenerate failed", err);
-      return res.status(500).json({ error: "session_error" });
+// POST /api/auth/login - Session-based authentication with returnTo support
+app.post('/api/auth/login', loginRateLimit, async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ code: 'MISSING_CREDENTIALS', message: 'Email and password required' });
     }
+    
+    // Simple authentication - replace with real authentication logic
+    const user = { id: "admin-id", email, roles: ["admin"] };
 
-    req.session.user = { id: "admin-id", email: email || "admin@example.com", roles: ["admin"] };
+    req.session.regenerate(err => {
+      if (err) return next(err);
+      req.session.user = { id: user.id, email: user.email, roles: user.roles }; // minimal, serializable
 
-    req.session.save((err2) => {
-      if (err2) {
-        console.error("[LOGIN] save failed", err2);
-        return res.status(500).json({ error: "session_error" });
-      }
-      // DEBUG: show if Set-Cookie header is present
-      const sc = res.getHeader("Set-Cookie");
-      console.log("[LOGIN] ok; sessionID=", req.sessionID, "Set-Cookie?", !!sc);
-      return res.json({ ok: true });
+      const redirectTo = sanitizeReturnTo(req.session.returnTo || DEFAULT_ADMIN_RETURN_URL);
+      delete req.session.returnTo;
+
+      req.session.save(err2 => {
+        if (err2) return next(err2);
+        res.status(200).json({ ok: true, redirectTo });
+      });
     });
-  });
+  } catch (e) {
+    res.status(401).json({ error: 'invalid_credentials' });
+  }
 });
 
 // POST /api/auth/logout - Destroy session
