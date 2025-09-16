@@ -98,6 +98,7 @@ app.get('/admin/*', (req,res,next) => {
   if (req.path === '/admin/login') return next(); // login is allowed through
   if (!req.session?.user) {
     const rt = encodeURIComponent(req.originalUrl || '/admin');
+    res.set('Cache-Control', 'no-cache');
     return res.redirect(302, `/admin/login?returnTo=${rt}`);
   }
   next();
@@ -125,6 +126,9 @@ app.get('/version.json', (_req, res) => res.json({ build: process.env.BUILD_ID |
 // ========== AUTH ROUTES ==========
 // GET /api/auth/whoami - Unguarded endpoint that returns real session state
 app.get('/api/auth/whoami', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.set('Vary', 'Cookie');
+  
   const user = req.session?.user;
   if (!user) {
     return res.json({ authenticated: false, roles: [], isAdmin: false });
@@ -163,6 +167,8 @@ app.post('/api/auth/login', loginRateLimit, async (req, res, next) => {
 
       req.session.save(err2 => {
         if (err2) return next(err2);
+        res.set('Cache-Control', 'no-store');
+        res.set('Vary', 'Cookie');
         res.status(200).json({ ok: true, redirectTo });
       });
     });
