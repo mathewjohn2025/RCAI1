@@ -117,7 +117,10 @@ app.use("/api/admin", (req, res, next) => {
 
 // ... your non-admin APIs here ...
 // Health endpoints (before all API routes)
-app.get('/version.json', (_req, res) => res.json({ build: process.env.BUILD_ID || 'dev' }));
+app.get('/version.json', (_req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.json({ build: process.env.BUILD_ID || 'dev' });
+});
 
 // ========== AUTH ROUTES ==========
 // Cache control helper function

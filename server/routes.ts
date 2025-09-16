@@ -368,15 +368,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  app.get("/version.json", (_req, res) => {
-    res.set("Cache-Control", "no-store, no-cache, must-revalidate");
-    res.json({
-      ok: true,
-      version: APP_VERSION,     // Git commit, build version, or process start time
-      builtAt: APP_BUILT_AT,    // Stable at build time
-      meta: { env: process.env.NODE_ENV }
-    });
-  });
   
   // MISSING ROUTE: Evidence Library Search with Elimination Logic
   app.get("/api/evidence-library/search-with-elimination", async (req, res) => {
