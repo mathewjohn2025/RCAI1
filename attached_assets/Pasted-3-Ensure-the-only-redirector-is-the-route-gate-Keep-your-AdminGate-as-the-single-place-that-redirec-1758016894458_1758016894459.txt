@@ -1,0 +1,61 @@
+3.Ensure the only redirector is the route gate
+Keep your AdminGate as the single place that redirects when unauth, and make sure it doesn’t run on /admin/login.
+Quick checks:
+grep -R "<Navigate" -n client
+grep -R "useEffect" -n client | grep -E "navigate\\(|/admin/login|returnTo"
+Delete any navigate(...) effects in admin pages. Keep only:
+•	AdminGate (waits for whoami; redirects once),
+•	The one navigate in the login page after POST (above).
+If you use React StrictMode in dev and still see double navigations, temporarily move the <BrowserRouter> outside <StrictMode> to confirm; then add useRef guards to any side-effects and put StrictMode back.
+ 
+4) Harden server responses (prevents stale cache bounces)
+Make auth-sensitive routes uncacheable and variant on cookie:
+function nocache(res) {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
+  res.set('Vary', 'Cookie');
+}
+
+// whoami
+app.get('/api/admin/whoami', (req, res) => {
+  nocache(res);
+  if (!req.session?.user) return res.status(401).json({ user: null });
+  res.json({ user: req.session.user });
+});
+
+// login (just before res.json)
+nocache(res);
+res.status(200).json({ ok: true, redirectTo });
+
+// guard 302
+app.get('/admin/*', (req,res,next)=>{
+  if (req.path === '/admin/login') return next();
+  if (!req.session?.user) {
+    nocache(res);
+    const rt = encodeURIComponent(req.originalUrl || '/admin');
+    return res.redirect(302, `/admin/login?returnTo=${rt}`);
+  }
+  nocache(res);
+  next();
+});
+ 
+5) (If it still bounces to Home) run the cookie probe once
+This tells you in 10 seconds whether cookies are being blocked in your current window.
+// server/dev/cookie-probe.ts
+export function cookieProbe(req, res) {
+  res.cookie('rcai_probe', '1', {
+    httpOnly: true,
+    sameSite: 'none',
+    secure: true,
+    path: '/',
+    maxAge: 300000,
+  });
+  res.set('Cache-Control', 'no-store');
+  res.json({ sawCookieHeader: !!req.headers.cookie });
+}
+app.get('/api/dev/cookie-probe', cookieProbe);
+Then in the flickering tab’s console:
+fetch('/api/dev/cookie-probe',{credentials:'include'}).then(r=>r.json()).then(console.log)
+•	If sawCookieHeader:false on repeat calls, the tab is blocking cookies → open the app in a top-level new tab(not the IDE iframe) or allow third-party cookies for replit.com.
+•	If true, cookies are fine; the fixes above will stop the flicker.
+
