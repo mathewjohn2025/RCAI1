@@ -43,6 +43,7 @@ declare module 'express-session' {
   }
 }
 import connectPgSimple from 'connect-pg-simple';
+import { sessionMiddleware } from './session.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -73,19 +74,7 @@ app.use(cors({
 
 app.set("trust proxy", 1); // Replit is behind a proxy
 
-app.use(session({
-  name: "sid",
-  secret: process.env.SESSION_SECRET || "dev-only-change-me",
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: true,        // HTTPS only (Replit new-tab is HTTPS)
-    sameSite: "none",    // works even if frontend and API are on different origins/iframe
-    httpOnly: true,
-    maxAge: 1000 * 60 * 60 * 24 * 7,
-    path: "/",           // explicit path so it's sent everywhere
-  },
-}));
+app.use(sessionMiddleware);
 
 // Essential middleware before guards
 app.use(express.json({ limit: "10mb" }));
