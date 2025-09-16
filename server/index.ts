@@ -39,6 +39,7 @@ declare module 'express-session' {
       email: string;
       roles: string[];
     };
+    returnTo?: string;
   }
 }
 import connectPgSimple from 'connect-pg-simple';
@@ -49,6 +50,7 @@ import { UniversalAIConfig } from "./universal-ai-config";
 import { loadCryptoKey } from "./config/crypto-key";
 import { createTestAdminUser, loginRateLimit } from "./rbac-middleware";
 import { ADMIN_ROLE_NAME, DEFAULT_ADMIN_RETURN_URL } from './config.js';
+import { sanitizeReturnTo } from './auth-returnTo';
 
 // SECURITY: Remove legacy test user creation - use proper seeding instead
 
@@ -107,7 +109,14 @@ const loginPageHandler = (req: any, res: any) => {
     };
   </script></body></html>`);
 };
-app.get('/admin/login', loginPageHandler);
+app.get('/admin/login', (req, res, next) => {
+  const rt = typeof req.query.returnTo === 'string' ? req.query.returnTo : undefined;
+  // Remember once per visit; don't overwrite if already present
+  if (!req.session.returnTo) {
+    req.session.returnTo = sanitizeReturnTo(rt || req.get('referer') || '/admin');
+  }
+  next();
+}, loginPageHandler);
 
 app.get("/admin/*", (req, res, next) => {
   if (req.path === "/admin/login") return next(); // do not redirect the login page
