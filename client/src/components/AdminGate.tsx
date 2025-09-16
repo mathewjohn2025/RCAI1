@@ -1,20 +1,14 @@
-import { Navigate, useLocation } from "react-router-dom";
-import { useWhoAmI } from "../hooks/useWhoAmI";
+import { useLocation, Navigate } from 'react-router-dom';
+import { useWhoAmI } from '../hooks/useWhoAmI';
 
-export default function AdminGate({ children }: { children: JSX.Element }) {
-  const { data, isLoading } = useWhoAmI();
-  const loc = useLocation();
-  if (isLoading) return null;
+export default function AdminGate({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const { data: me, isLoading } = useWhoAmI(); // credentials:'include' already set
 
-  if (!data?.authenticated) {
-    const raw = loc.pathname + loc.search; // not encoded
-    const returnTo = encodeURIComponent(raw); // encode only the value
-    return (
-      <Navigate
-        to={{ pathname: "/admin/login", search: `?returnTo=${returnTo}` }}
-        replace
-      />
-    );
+  if (isLoading) return null; // <- NO redirect while loading
+  if (!me?.authenticated) {
+    const rt = encodeURIComponent(location.pathname + location.search + location.hash);
+    return <Navigate to={`/admin/login?returnTo=${rt}`} replace />;
   }
-  return children;
+  return <>{children}</>;
 }
