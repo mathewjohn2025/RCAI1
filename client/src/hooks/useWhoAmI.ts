@@ -8,9 +8,10 @@ export function useWhoAmI() {
       const response = await api("/api/auth/whoami");
       return response.json();
     },
-    staleTime: 30_000,
-    refetchOnWindowFocus: false,
+    staleTime: 60_000,            // longer cache
+    refetchOnWindowFocus: false,  // no focus refetch
     refetchOnReconnect: false,
+    refetchInterval: false,
     retry: false,
   });
 }

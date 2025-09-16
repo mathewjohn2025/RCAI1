@@ -1,6 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+// import { apiRequest } from "@/lib/queryClient"; // Not used
 import { API_ENDPOINTS, ADMIN_ROUTES } from "@/config/apiEndpoints";
 
 interface AIProvider {
