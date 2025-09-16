@@ -1,0 +1,94 @@
+1) Drop-in server diagnostics (copy/paste)
+Add all three endpoints; they’re read-only and safe. Put them near your other routes.
+// server/dev/diag.ts
+import type { Request, Response } from 'express';
+
+export function nocache(res: Response) {
+  res.set('Cache-Control','no-store, no-cache, must-revalidate, private');
+  res.set('Pragma','no-cache');
+  res.set('Vary','Cookie');
+}
+
+export function devDiag(req: Request, res: Response) {
+  nocache(res);
+  res.json({
+    build: process.env.BUILD_ID || process.env.VERCEL_GIT_COMMIT_SHA || process.env.REPLIT_DEPLOYMENT || 'dev',
+    trustProxy: req.app.get('trust proxy'),
+    sessionStore: req.sessionStore?.constructor?.name ?? 'unknown',
+    hasSessionObj: !!req.session,
+    hasUser: !!req.session?.user,
+    sessionID: (req as any).sessionID || null,
+    cookieSeenOnReq: !!req.headers.cookie,
+    cookieSample: (req.headers.cookie || '').split(';').slice(0,1)[0],
+    now: new Date().toISOString(),
+  });
+}
+
+export function cookieProbe(req: Request, res: Response) {
+  nocache(res);
+  res.cookie('rcai_probe', '1', {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax', // top-level new tab -> LAX is fine and more robust
+    path: '/',
+    maxAge: 5 * 60 * 1000,
+  });
+  res.json({ sawCookieHeader: !!req.headers.cookie });
+}
+Wire them:
+import { devDiag, cookieProbe, nocache } from './dev/diag';
+
+app.get('/api/dev/diag', devDiag);
+app.get('/api/dev/cookie-probe', cookieProbe);
+
+// Add nocache to auth edges (if not already)
+app.get('/api/admin/whoami', (req,res) => { nocache(res); /* ...existing... */ });
+app.post('/api/auth/login', (req,res) => { nocache(res); /* ...existing... */ });
+
+2) One-line client probe (run in the flickering tab Console)
+Before login:
+await fetch('/api/dev/diag',{credentials:'include'}).then(r=>r.json())
+Immediately after you click “Sign in” and it says redirecting:
+await fetch('/api/dev/diag',{credentials:'include'}).then(r=>r.json())
+If it bounces to Home, run it again on Home:
+await fetch('/api/dev/diag',{credentials:'include'}).then(r=>r.json())
+Interpretation (binary):
+•	If any of these shows sessionStore: "MemoryStore" → that’s the problem. Switch to SQLite (or Redis) store really happened or not.
+•	If hasUser: true right after login but hasUser: false on the very next call → your session is not being persisted/read. (Store or cookie issue.)
+•	If cookieSeenOnReq: false even after login → the cookie isn’t sent (wrong SameSite/origin, or iframe). You’re already in a new tab, so use sameSite:'lax' on the session cookie.
+
+3) Quick filesystem proof (Replit Shell)
+Ask Replit to run these and paste the outputs back to you:
+node -p "require('./package.json').dependencies['connect-sqlite3']"
+ls -la .data | sed -n '1,80p'
+ls -la .data/sessions.sqlite || echo "no sessions.sqlite"
+sqlite3 .data/sessions.sqlite "SELECT count(*) FROM sqlite_master WHERE type='table';" || true
+grep -R --line-number "connect-sqlite3" server
+grep -R --line-number "session(" server | sed -n '1,120p'
+You should see:
+•	connect-sqlite3 present,
+•	a real .data/sessions.sqlite file,
+•	your session( config using new SQLiteStore(...).
+If any of those are missing, Replit didn’t apply the store change.
+
+4) Router proof (no silent bounce to Home)
+In your client repo, run:
+grep -R --line-number "<Routes" client | grep key || true
+grep -R --line-number "<Navigate" client
+grep -R --line-number "navigate('/')" client
+grep -R --line-number "to=\"/\"" client | grep -i Navigate
+•	There must be no <Routes key={location.key}>
+•	No page effect that navigates "/" on unknown admin paths
+•	Ensure /admin has an index redirect to /admin/settings
+
+5) Cookie shape (Application tab → Cookies)
+Check the connect.sid cookie:
+•	Secure: ✅
+•	SameSite: Lax (try Lax while testing in a top-level tab)
+•	Path: /
+•	Domain: blank/host-only is fine on *.replit.dev
+If SameSite is None and you’re not in an iframe, that’s okay too; but Lax is safer on Safari.
+Server snippet (what it should be now):
+cookie: { httpOnly:true, secure:true, sameSite:'lax', path:'/', maxAge: 1000*60*60*4 }
+
+

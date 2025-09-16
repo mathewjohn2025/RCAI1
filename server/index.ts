@@ -52,6 +52,7 @@ import { loadCryptoKey } from "./config/crypto-key";
 import { createTestAdminUser, loginRateLimit } from "./rbac-middleware";
 import { ADMIN_ROLE_NAME, DEFAULT_ADMIN_RETURN_URL } from './config.js';
 import { sanitizeReturnTo } from './auth-returnTo';
+import { devDiag, cookieProbe, nocache as diagNocache } from './dev/diag';
 
 // SECURITY: Remove legacy test user creation - use proper seeding instead
 
@@ -206,6 +207,10 @@ app.get("/api/auth/cookie-debug", (req, res) => {
     user: req.session?.user ?? null,
   });
 });
+
+// Add diagnostic endpoints
+app.get('/api/dev/diag', devDiag);
+app.get('/api/dev/cookie-probe', cookieProbe);
 
 // temporary: log cookie presence on every request (easy to remove later)
 app.use((req, _res, next) => {
