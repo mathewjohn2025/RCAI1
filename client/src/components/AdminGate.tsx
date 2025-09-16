@@ -17,7 +17,7 @@ export default function AdminGate({ children }: { children: React.ReactNode }) {
     }
   }, [isLoading, me?.authenticated, location, navigate]);
 
-  if (isLoading) return null; // <- NO redirect while loading
+  if (isLoading) return null; // never redirect while loading
   if (!me?.authenticated) return null; // <- Wait for redirect
   return <>{children}</>;
 }

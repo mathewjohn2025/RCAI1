@@ -107,14 +107,19 @@ app.get('/admin/*', (req,res,next) => {
 
 // --- UNIFIED ADMIN API GUARD (place BEFORE admin routers) ---
 app.use("/api/admin", (req, res, next) => {
+  // Special case: whoami endpoint doesn't need auth guard 
+  if (req.path === '/whoami') return next();
+  
   const user = req.session?.user;
   if (!user) {
     console.log("[GUARD:/api/admin]", req.method, req.originalUrl, "-> 401 (no session)");
+    nocache(res);
     return res.status(401).json({ error: "unauthorized" }); // not 403
   }
   // if you have roles:
   if (!user.roles?.includes("admin")) {
     console.log("[GUARD:/api/admin]", req.method, req.originalUrl, "-> 403 (not admin)");
+    nocache(res);
     return res.status(403).json({ error: "forbidden" });
   }
   next();
@@ -132,7 +137,17 @@ function nocache(res: Response) {
   res.set('Vary', 'Cookie');
 }
 
-// GET /api/auth/whoami - Unguarded endpoint that returns real session state
+// GET /api/admin/whoami - Admin whoami endpoint with strict nocache
+app.get('/api/admin/whoami', (req, res) => {
+  nocache(res);
+  if (!req.session?.user) return res.status(401).json({ user: null });
+  res.json({ 
+    authenticated: true,
+    user: req.session.user 
+  });
+});
+
+// GET /api/auth/whoami - Legacy auth whoami (keeping for compatibility)
 app.get('/api/auth/whoami', (req, res) => {
   nocache(res);
   

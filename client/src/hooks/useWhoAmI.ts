@@ -3,13 +3,10 @@ import { api } from "../lib/api";
 
 export function useWhoAmI() {
   return useQuery({
-    queryKey: ["whoami"],
-    queryFn: async () => {
-      const response = await api("/api/auth/whoami");
-      return response.json();
-    },
-    staleTime: 60_000,            // longer cache
-    refetchOnWindowFocus: false,  // no focus refetch
+    queryKey: ['whoami'],
+    queryFn: () => fetch('/api/admin/whoami', { credentials: 'include' }).then(res => res.json()),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,
     retry: false,
