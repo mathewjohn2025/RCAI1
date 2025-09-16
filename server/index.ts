@@ -98,9 +98,10 @@ app.get('/admin/*', (req,res,next) => {
   if (req.path === '/admin/login') return next(); // login is allowed through
   if (!req.session?.user) {
     const rt = encodeURIComponent(req.originalUrl || '/admin');
-    res.set('Cache-Control', 'no-cache');
+    nocache(res);
     return res.redirect(302, `/admin/login?returnTo=${rt}`);
   }
+  nocache(res);
   next();
 });
 
@@ -124,10 +125,16 @@ app.use("/api/admin", (req, res, next) => {
 app.get('/version.json', (_req, res) => res.json({ build: process.env.BUILD_ID || 'dev' }));
 
 // ========== AUTH ROUTES ==========
+// Cache control helper function
+function nocache(res: Response) {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
+  res.set('Vary', 'Cookie');
+}
+
 // GET /api/auth/whoami - Unguarded endpoint that returns real session state
 app.get('/api/auth/whoami', (req, res) => {
-  res.set('Cache-Control', 'no-store');
-  res.set('Vary', 'Cookie');
+  nocache(res);
   
   const user = req.session?.user;
   if (!user) {
@@ -167,8 +174,7 @@ app.post('/api/auth/login', loginRateLimit, async (req, res, next) => {
 
       req.session.save(err2 => {
         if (err2) return next(err2);
-        res.set('Cache-Control', 'no-store');
-        res.set('Vary', 'Cookie');
+        nocache(res);
         res.status(200).json({ ok: true, redirectTo });
       });
     });
