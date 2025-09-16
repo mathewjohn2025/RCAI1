@@ -74,7 +74,7 @@ export default function AdminLogin() {
         data-testid="input-password"
       />
       <button type="submit" disabled={submitting} data-testid="button-login">
-        {submitting ? 'Signing in…' : 'Sign in'}
+        Sign in
       </button>
     </form>
   );
