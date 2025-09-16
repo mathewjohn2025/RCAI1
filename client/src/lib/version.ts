@@ -9,12 +9,17 @@ export async function ensureFreshBuild() {
       console.warn('Version check HTTP', res.status);
       return; // <-- DO NOT reload on error
     }
-    const remote = await res.json();    // { buildTag: "…" } or { build: "…" }
+    const remote = await res.json();    // { buildTag: "…" }
     const local = import.meta.env.VITE_BUILD_TAG;
-    const remoteBuild = remote?.buildTag || remote?.build;
-    if (remoteBuild && local && remoteBuild !== local) {
-      await unregisterSW();
-      window.location.reload();
+    if (remote?.buildTag && local && remote.buildTag !== local) {
+      const FLAG = 'FORCED_RELOAD_DONE';
+      if (!sessionStorage.getItem(FLAG)) {
+        sessionStorage.setItem(FLAG, '1');
+        await unregisterSW();
+        window.location.reload();
+      } else {
+        console.warn('Reload already attempted; aborting to avoid loop.');
+      }
     }
   } catch (e) {
     console.warn('Version check failed:', e); // <-- log only, no reload

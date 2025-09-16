@@ -1,0 +1,52 @@
+1) Make the version check non-fatal
+Your checker should never reload on fetch errors. Reload only on a confirmed mismatch.
+// version.ts
+export async function ensureFreshBuild() {
+  // In dev, skip entirely
+  if (import.meta.env.DEV) return;
+
+  try {
+    const res = await fetch('/version.json?ts=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) {
+      console.warn('Version check HTTP', res.status);
+      return; // <-- DO NOT reload on error
+    }
+    const remote = await res.json();    // { buildTag: "…" }
+    const local = import.meta.env.VITE_BUILD_TAG;
+    if (remote?.buildTag && local && remote.buildTag !== local) {
+      await unregisterSW();
+      window.location.reload();
+    }
+  } catch (e) {
+    console.warn('Version check failed:', e); // <-- log only, no reload
+  }
+}
+
+async function unregisterSW() {
+  const regs = await navigator.serviceWorker?.getRegistrations?.();
+  await Promise.all((regs||[]).map(r => r.unregister()));
+  const keys = await caches?.keys?.();
+  await Promise.all((keys||[]).map(k => caches.delete(k)));
+}
+2) Ensure the file actually exists and is served
+•	Put version.json in your /public folder (Vite/CRA) so it’s available at /version.json in prod.
+•	Example content (generated at build time):
+•	{ "buildTag": "2025-09-16T13:28:10.477Z" }
+•	Make VITE_BUILD_TAG (or whatever you log as HOME_PUBLIC_TEST) match the same string.
+If the Network tab shows /version.json is 404, this is the reason for the loop.
+3) Register SW only in production
+Replit dev URLs + SWs are a pain. Don’t register a SW during dev.
+// sw-register.ts
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  navigator.serviceWorker.register('/sw.js');
+}
+4) Add a loop-breaker
+If you must reload on mismatch, add a session flag so it can’t reload endlessly if something goes wrong.
+const FLAG = 'FORCED_RELOAD_DONE';
+if (!sessionStorage.getItem(FLAG)) {
+  sessionStorage.setItem(FLAG, '1');
+  window.location.reload();
+} else {
+  console.warn('Reload already attempted; aborting to avoid loop.');
+}
+
