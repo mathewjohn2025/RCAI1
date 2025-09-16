@@ -93,10 +93,11 @@ app.use(express.urlencoded({ extended: false }));
 
 // LOGIN PAGE now handled by SPA - no server handler needed
 
-app.get("/admin/*", (req, res, next) => {
-  if (req.path === "/admin/login") return next(); // do not redirect the login page
+// guard BEFORE static
+app.get('/admin/*', (req,res,next) => {
+  if (req.path === '/admin/login') return next(); // login is allowed through
   if (!req.session?.user) {
-    const rt = encodeURIComponent(req.originalUrl || "/admin");
+    const rt = encodeURIComponent(req.originalUrl || '/admin');
     return res.redirect(302, `/admin/login?returnTo=${rt}`);
   }
   next();
@@ -293,17 +294,12 @@ app.get('/__spa-debug', (_req, res) => {
   const clientDir = candidates.find(p => fs.existsSync(path.join(p, "index.html")));
   if (!clientDir) { console.error("[SPA] index.html not found in", candidates); process.exit(1); }
 
-  // Serve static assets
-  app.use(express.static(clientDir));
-
   // Health check (keep this; do NOT add a canary at "/")
   app.get("/healthz", (_req, res) => res.send("ok"));
 
-  // SPA fallback
-  app.get("*", (req, res) => {
-    console.log("[SPA]", req.path, "-> index.html");
-    res.sendFile(path.join(clientDir, "index.html"));
-  });
+  // static + SPA fallback at the bottom
+  app.use(express.static(clientDir));
+  app.get('*', (_req,res) => res.sendFile(path.join(clientDir,'index.html')));
 
   function printRoutes(app: any) {
     console.log("---- ROUTE TABLE ----");
