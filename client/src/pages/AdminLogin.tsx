@@ -60,11 +60,11 @@ function AdminLoginInner() {
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
             <input
               ref={emailRef}
-              id="email"
-              name="username"           // correct for autofill
+              id="admin-email"
+              name="email"
               type="email"
               inputMode="email"
-              autoComplete="username"
+              autoComplete="email"
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
@@ -80,7 +80,7 @@ function AdminLoginInner() {
             <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">Password</label>
             <input
               ref={passRef}
-              id="password"
+              id="admin-password"
               name="password"
               type="password"
               autoComplete="current-password"
