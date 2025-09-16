@@ -14,8 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { Calendar, Clock, AlertTriangle, User, MapPin, Wrench, ArrowRight, Home, Clock4 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { startVersionWatcher } from "@/lib/version-watch";
+import { queryClient } from "@/lib/queryClient";
 import { showSmartToast, dismissToast } from "@/lib/smart-toast";
 import { useGroups, useTypes, useSubtypes } from "@/api/equipment";
 import { createIncident, clearDraft } from "@/api/incidents";
@@ -287,24 +286,7 @@ export default function IncidentReporting() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [currentIncidentId, isFormDirty, formValues, autosave]);
 
-  // Initialize smart version watcher
-  useEffect(() => {
-    let cleanup: (() => void) | undefined;
-    
-    const initWatcher = async () => {
-      cleanup = await startVersionWatcher({
-        getIsFormDirty: () => isFormDirty,
-        showToast: showSmartToast,
-        dismissToast: dismissToast,
-      });
-    };
-    
-    initWatcher();
-    
-    return () => {
-      if (cleanup) cleanup();
-    };
-  }, [isFormDirty]);
+  // Version watcher removed - using one-shot cache reset instead
 
   // Navigation guard - warn about unsaved changes
   useEffect(() => {
