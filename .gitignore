@@ -30,3 +30,6 @@ build/
 *.swp
 !.env
 .env
+
+# large files
+path/to/bigfile
