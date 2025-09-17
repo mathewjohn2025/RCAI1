@@ -4,19 +4,16 @@ import connectSqlite3 from 'connect-sqlite3';
 const SQLiteStore = connectSqlite3(session) as any;
 
 export const sessionMiddleware = session({
-  name: "sid",
-  store: new SQLiteStore({
-    db: 'sessions.sqlite',          // persisted file
-    dir: './.data',                 // persists on Replit
-  }),
-  secret: process.env.SESSION_SECRET!, // DO NOT hardcode
+  name: 'rcai.sid',                              // ← unique cookie name (no collisions)
+  store: new SQLiteStore({ db: 'sessions.sqlite', dir: './.data' }),
+  secret: process.env.SESSION_SECRET!,           // no hardcoding
   resave: false,
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production', // Only secure in production
-    sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'none', // Allow cross-origin in dev
+    secure: true,                                // Replit runs over HTTPS — required by Chrome if SameSite=None
+    sameSite: 'lax',                             // top-level tab → robust across browsers
     path: '/',
-    maxAge: 1000 * 60 * 60 * 4,     // 4 hours
+    maxAge: 1000 * 60 * 60 * 4,                  // 4h
   },
 });

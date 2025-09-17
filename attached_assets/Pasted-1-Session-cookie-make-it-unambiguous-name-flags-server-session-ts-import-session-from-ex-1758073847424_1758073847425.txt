@@ -1,0 +1,57 @@
+1) Session cookie: make it unambiguous (name + flags)
+// server/session.ts
+import session from 'express-session';
+import connectSqlite3 from 'connect-sqlite3';
+
+const SQLiteStore = connectSqlite3(session);
+
+export const sessionMiddleware = session({
+  name: 'rcai.sid',                              // ← unique cookie name (no collisions)
+  store: new SQLiteStore({ db: 'sessions.sqlite', dir: './.data' }),
+  secret: process.env.SESSION_SECRET!,           // no hardcoding
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: true,                                // Replit runs over HTTPS — required by Chrome if SameSite=None
+    sameSite: 'lax',                             // top-level tab → robust across browsers
+    path: '/',
+    maxAge: 1000 * 60 * 60 * 4,                  // 4h
+  },
+});
+// server/index.ts (order matters)
+app.set('trust proxy', 1);
+app.use(sessionMiddleware);
+Why: unique name avoids clashes with any legacy connect.sid; secure:true + sameSite:'lax' is the safest combo in a top-level new tab.
+
+2) Server-driven login (no SPA race): 303 to the final admin URL
+Add a redirecting login endpoint that the form posts to:
+// server/routes/auth.ts
+import express from 'express';
+import { nocache } from '../dev/diag'; // or re-declare nocache here
+
+const parseForm = express.urlencoded({ extended: false });
+
+app.post('/api/auth/login-redirect', parseForm, (req, res, next) => {
+  const { email, password } = req.body || {};
+  authenticate(email, password) // must throw on failure
+    .then(user => {
+      req.session.regenerate(err => {
+        if (err) return next(err);
+        req.session.user = { id: user.id, role: user.role };
+
+        const redirectTo = req.session.returnTo || '/admin/settings';
+        delete req.session.returnTo;
+
+        req.session.save(err2 => {
+          if (err2) return next(err2);
+          nocache(res);
+          return res.redirect(303, redirectTo);   // ← browser navigates; cookie travels
+        });
+      });
+    })
+    .catch(() => res.status(401).send('invalid_credentials'));
+});
+Keep your JSON login if you want, but for reliability switch the UI to this endpoint (next step).
+
+
