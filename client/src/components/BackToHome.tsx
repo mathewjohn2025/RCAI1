@@ -8,7 +8,7 @@ export function BackToHomeButton() {
     <Button 
       type="button" 
       variant="outline" 
-      onClick={() => navigate('/')}
+      onClick={() => navigate('/admin/settings')}
       className="flex items-center gap-2"
     >
       <ArrowLeft className="h-4 w-4" />
@@ -20,7 +20,7 @@ export function BackToHomeButton() {
 export function BackToHomeLink() {
   return (
     <Button variant="outline" asChild>
-      <Link to="/" className="flex items-center gap-2">
+      <Link to="/admin/settings" className="flex items-center gap-2">
         <ArrowLeft className="h-4 w-4" />
         Back to Home
       </Link>

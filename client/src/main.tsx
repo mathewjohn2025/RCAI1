@@ -1,15 +1,24 @@
+// DEV kill-switch to prove no hidden reloaders are active
+if (import.meta.env.DEV) {
+  const origReload = window.location.reload.bind(window.location);
+  window.location.reload = () => {
+    console.warn('[DEV] reload suppressed');
+    // comment the next line back in if you need to allow one manual reload:
+    // origReload();
+  };
+}
+
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
-import "./dev/once-cache-reset";
-import { ensureFreshBuild } from "./lib/version";
 
-// Check for build updates before rendering
-ensureFreshBuild().catch(console.warn);
+// Disable service workers entirely to prevent flicker
+import * as sw from './serviceWorkerRegistration';
+sw.unregister();
 
-// Register Service Worker only in production
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  navigator.serviceWorker.register('/sw.js');
+// Optional: Import safe version poller only in development
+if (import.meta.env.DEV) {
+  import('./version-poller');
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

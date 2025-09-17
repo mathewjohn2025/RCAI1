@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiPost } from "@/api";
 
 interface EngineerReview {
   reviewerId: string;
@@ -87,13 +87,10 @@ export default function EngineerReview() {
   // Submit engineer review
   const submitReviewMutation = useMutation({
     mutationFn: async (reviewData: EngineerReview) => {
-      return apiRequest(`/api/incidents/${incidentId}/engineer-review`, {
-        method: 'POST',
-        body: JSON.stringify({
-          ...reviewData,
-          currentStep: 8,
-          workflowStatus: reviewData.approved ? "approved" : "under_review",
-        }),
+      return apiPost(`/incidents/${incidentId}/engineer-review`, {
+        ...reviewData,
+        currentStep: 8,
+        workflowStatus: reviewData.approved ? "approved" : "under_review",
       });
     },
     onSuccess: (data) => {
@@ -112,16 +109,13 @@ export default function EngineerReview() {
   // Generate final RCA report
   const generateReportMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest(`/api/incidents/${incidentId}/generate-final-report`, {
-        method: 'POST',
-        body: JSON.stringify({
-          engineerReview: reviewData,
-        }),
+      return apiPost(`/incidents/${incidentId}/generate-final-report`, {
+        engineerReview: reviewData,
       });
     },
     onSuccess: (data) => {
       // Download or navigate to final report
-      window.open(data.reportUrl, '_blank', 'noopener');
+      window.open((data as any)?.reportUrl, '_blank', 'noopener');
     },
   });
 
@@ -167,7 +161,7 @@ export default function EngineerReview() {
               </div>
             </div>
             <Badge variant="outline" className="text-sm">
-              Incident #{incident.id}
+              Incident #{(incident as any)?.id}
             </Badge>
           </div>
         </div>
@@ -184,7 +178,7 @@ export default function EngineerReview() {
                   Final RCA Review
                 </CardTitle>
                 <CardDescription>
-                  {incident.title} - {incident.equipmentGroup} → {incident.equipmentType}
+                  {(incident as any)?.title} - {(incident as any)?.equipmentGroup} → {(incident as any)?.equipmentType}
                 </CardDescription>
               </div>
               <div className="flex items-center gap-4">
@@ -281,7 +275,7 @@ export default function EngineerReview() {
                   <div className="space-y-6">
                     <div>
                       <h4 className="font-medium mb-3">Root Causes Identified</h4>
-                      {analysisResults.rootCauses?.map((cause, index) => (
+                      {(analysisResults as any)?.rootCauses?.map((cause: any, index: number) => (
                         <div key={index} className="p-3 border rounded-lg mb-2">
                           <div className="flex items-center justify-between">
                             <span className="font-medium">{cause.description}</span>
@@ -294,7 +288,7 @@ export default function EngineerReview() {
 
                     <div>
                       <h4 className="font-medium mb-3">Recommendations Generated</h4>
-                      {analysisResults.recommendations?.map((rec, index) => (
+                      {(analysisResults as any)?.recommendations?.map((rec: any, index: number) => (
                         <div key={index} className="p-3 border rounded-lg mb-2">
                           <div className="flex items-center justify-between">
                             <span className="font-medium">{rec.title}</span>
@@ -383,26 +377,26 @@ export default function EngineerReview() {
                     {/* Completeness Status */}
                     <div className="flex items-center justify-between p-4 rounded-lg bg-gray-50">
                       <div className="flex items-center gap-3">
-                        <div className={`w-3 h-3 rounded-full ${completenessCheck.canBeClosed ? 'bg-green-500' : 'bg-amber-500'}`}></div>
+                        <div className={`w-3 h-3 rounded-full ${(completenessCheck as any)?.canBeClosed ? 'bg-green-500' : 'bg-amber-500'}`}></div>
                         <div>
                           <span className="font-medium">
-                            {completenessCheck.canBeClosed ? 'Ready for Closure' : 'Closure Available with Theoretical Analysis'}
+                            {(completenessCheck as any)?.canBeClosed ? 'Ready for Closure' : 'Closure Available with Theoretical Analysis'}
                           </span>
-                          <p className="text-sm text-gray-600">{completenessCheck.closureReason}</p>
+                          <p className="text-sm text-gray-600">{(completenessCheck as any)?.closureReason}</p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="text-2xl font-bold text-blue-600">{completenessCheck.overallCompleteness}%</div>
+                        <div className="text-2xl font-bold text-blue-600">{(completenessCheck as any)?.overallCompleteness}%</div>
                         <div className="text-sm text-gray-500">Complete</div>
                       </div>
                     </div>
 
                     {/* Critical Issues */}
-                    {completenessCheck.issues.length > 0 && (
+                    {(completenessCheck as any)?.issues?.length > 0 && (
                       <div className="border rounded-lg p-4">
                         <h4 className="font-medium text-amber-700 mb-2">Outstanding Issues</h4>
                         <ul className="space-y-1">
-                          {completenessCheck.issues.map((issue, index) => (
+                          {(completenessCheck as any)?.issues?.map((issue: any, index: number) => (
                             <li key={index} className="text-sm text-amber-600 flex items-start gap-2">
                               <span className="w-1.5 h-1.5 bg-amber-500 rounded-full mt-2 flex-shrink-0"></span>
                               {issue}
@@ -413,20 +407,20 @@ export default function EngineerReview() {
                     )}
 
                     {/* Theoretical Analysis Section */}
-                    {completenessCheck.theoreticalAnalysisRecommended && (
+                    {(completenessCheck as any)?.theoreticalAnalysisRecommended && (
                       <div className="border rounded-lg p-4 bg-blue-50">
                         <h4 className="font-medium text-blue-700 mb-3">Theoretical Analysis Available</h4>
-                        {completenessCheck.theoreticalAnalysis && (
+                        {(completenessCheck as any)?.theoreticalAnalysis && (
                           <div className="space-y-3 text-sm">
                             <div>
                               <span className="font-medium text-blue-600">Approach:</span>
-                              <p className="text-blue-700 mt-1">{completenessCheck.theoreticalAnalysis.approach}</p>
+                              <p className="text-blue-700 mt-1">{(completenessCheck as any)?.theoreticalAnalysis?.approach}</p>
                             </div>
-                            {completenessCheck.theoreticalAnalysis.theoreticalConclusions?.length > 0 && (
+                            {(completenessCheck as any)?.theoreticalAnalysis?.theoreticalConclusions?.length > 0 && (
                               <div>
                                 <span className="font-medium text-blue-600">Engineering Conclusions:</span>
                                 <ul className="mt-1 space-y-1">
-                                  {completenessCheck.theoreticalAnalysis.theoreticalConclusions.slice(0, 2).map((conclusion, idx) => (
+                                  {(completenessCheck as any)?.theoreticalAnalysis?.theoreticalConclusions?.slice(0, 2).map((conclusion: any, idx: number) => (
                                     <li key={idx} className="text-blue-700 pl-2">{conclusion}</li>
                                   ))}
                                 </ul>
@@ -438,26 +432,26 @@ export default function EngineerReview() {
                     )}
 
                     {/* Inconclusive Findings */}
-                    {completenessCheck.inconclusiveFindings && completenessCheck.unansweredCriticalQuestions.length > 0 && (
+                    {(completenessCheck as any)?.inconclusiveFindings && (completenessCheck as any)?.unansweredCriticalQuestions?.length > 0 && (
                       <div className="border rounded-lg p-4 bg-orange-50">
                         <h4 className="font-medium text-orange-700 mb-3">Inconclusive Findings Documentation</h4>
                         <div className="text-sm space-y-2">
-                          <p className="text-orange-700">{completenessCheck.inconclusiveFindings.summary}</p>
-                          {completenessCheck.inconclusiveFindings.confidenceImpact && (
-                            <p className="text-orange-600 font-medium">{completenessCheck.inconclusiveFindings.confidenceImpact}</p>
+                          <p className="text-orange-700">{(completenessCheck as any)?.inconclusiveFindings?.summary}</p>
+                          {(completenessCheck as any)?.inconclusiveFindings?.confidenceImpact && (
+                            <p className="text-orange-600 font-medium">{(completenessCheck as any)?.inconclusiveFindings?.confidenceImpact}</p>
                           )}
                         </div>
                       </div>
                     )}
 
                     {/* Potential Failure Modes */}
-                    {completenessCheck.potentialFailureModes.length > 0 && (
+                    {(completenessCheck as any)?.potentialFailureModes?.length > 0 && (
                       <details className="border rounded-lg p-4">
                         <summary className="font-medium cursor-pointer text-gray-700">
-                          Alternative Failure Modes Considered ({completenessCheck.potentialFailureModes.length})
+                          Alternative Failure Modes Considered ({(completenessCheck as any)?.potentialFailureModes?.length})
                         </summary>
                         <div className="mt-3 space-y-2">
-                          {completenessCheck.potentialFailureModes.slice(0, 3).map((mode, index) => (
+                          {(completenessCheck as any)?.potentialFailureModes?.slice(0, 3).map((mode: any, index: number) => (
                             <div key={index} className="text-sm p-2 bg-gray-50 rounded">
                               <div className="font-medium">{mode.mode}</div>
                               {mode.causes && (
@@ -556,7 +550,7 @@ export default function EngineerReview() {
           </Button>
           {reviewData.approved && (
             <Button 
-              onClick={() => navigate('/')}
+              onClick={() => navigate('/admin/settings')}
               className="flex items-center gap-2"
             >
               Complete Investigation

@@ -54,9 +54,9 @@ export const router = createBrowserRouter([
       },
       
       // NEW: normalize weird encoded paths like "/%3F__seed=…"
-      { path: '%3F/*', element: <Navigate to="/" replace /> },
+      { path: '%3F/*', element: <Navigate to="/admin/settings" replace /> },
       // NEW: catch-all fallback
-      { path: '*', element: <Navigate to="/" replace /> },
+      { path: '*', element: <Navigate to="/admin/settings" replace /> },
     ],
   },
 ]);

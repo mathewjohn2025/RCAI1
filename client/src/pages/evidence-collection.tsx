@@ -32,7 +32,7 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiPost, api } from "@/api";
 import { useDropzone } from "react-dropzone";
 
 interface UploadedFile {
@@ -79,7 +79,7 @@ interface Incident {
  */
 
 export default function EvidenceCollection() {
-  const location = useLocation();
+  const routerLocation = useRouterLocation();
   const [incidentId, setIncidentId] = useState<number | null>(null);
   const [evidenceCategories, setEvidenceCategories] = useState<EvidenceCategory[]>([]);
   const [activeCategory, setActiveCategory] = useState<string>("");
@@ -175,7 +175,7 @@ export default function EvidenceCollection() {
   // Generate categories when incident loads
   useEffect(() => {
     if (incident && Array.isArray(evidenceCategories) && evidenceCategories.length === 0 && 
-        incident.id && incident.title && incident.equipmentGroup && incident.equipmentType) {
+        (incident as any)?.id && (incident as any)?.title && (incident as any)?.equipmentGroup && (incident as any)?.equipmentType) {
       generateCategoriesMutation.mutate(incident as Incident);
     }
   }, [incident]);
@@ -271,7 +271,7 @@ export default function EvidenceCollection() {
             <div className="flex items-center space-x-4">
               <Button 
                 variant="ghost" 
-                onClick={() => navigate('/')}
+                onClick={() => navigate('/admin/settings')}
               >
                 ← Back to Home
               </Button>
@@ -285,7 +285,7 @@ export default function EvidenceCollection() {
               </div>
             </div>
             <Badge variant="outline" className="text-sm">
-              Incident #{incident?.id || 'Loading...'}
+              Incident #{(incident as any)?.id || 'Loading...'}
             </Badge>
           </div>
         </div>
@@ -299,10 +299,10 @@ export default function EvidenceCollection() {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <FileText className="h-5 w-5" />
-                  {incident?.title || 'Loading...'}
+                  {(incident as any)?.title || 'Loading...'}
                 </CardTitle>
                 <CardDescription>
-                  Equipment: {incident?.equipmentGroup || 'Unknown'} → {incident?.equipmentType || 'Unknown'} ({incident?.equipmentId || 'Unknown'})
+                  Equipment: {(incident as any)?.equipmentGroup || 'Unknown'} → {(incident as any)?.equipmentType || 'Unknown'} ({(incident as any)?.equipmentId || 'Unknown'})
                 </CardDescription>
               </div>
               <div className="text-right">

@@ -1,0 +1,70 @@
+Safe replacement for any version poller (if you want to keep it)
+// version-poller.ts — import once in main.tsx (DEV only if you prefer)
+const START_HASH = (import.meta as any).env?.VITE_BUILD_HASH || '';
+async function poll(hash = START_HASH) {
+  try {
+    const r = await fetch('/__build.json', { cache: 'no-cache' });
+    if (r.ok) {
+      const j = await r.json();
+      if (j?.hash && j.hash !== hash) {
+        location.reload(); // reload ONCE on *change*, not on error
+        return;
+      }
+    }
+  } catch (_) {
+    // swallow errors — never reload on failure
+  } finally {
+    setTimeout(() => poll(hash), 60000);
+  }
+}
+poll();
+Hard stop (temporary, to prove it)
+At the very top of client/src/main.tsx (before anything else):
+// DEV kill-switch to prove no hidden reloaders are active
+if (import.meta.env.DEV) {
+  const origReload = window.location.reload.bind(window.location);
+  window.location.reload = () => {
+    console.warn('[DEV] reload suppressed');
+    // comment the next line back in if you need to allow one manual reload:
+    // origReload();
+  };
+}
+If the flicker stops after this, you 100% had a reload loop.
+2) Disable service workers entirely (for now)
+If you have CRA/Vite SW code, ensure it’s unregistered once, not every render, and no reload loops:
+// serviceWorkerRegistration.ts
+export function unregister() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister()));
+  }
+}
+// main.tsx
+import * as sw from './serviceWorkerRegistration';
+sw.unregister();
+No intervals. No repeated “clear caches + reload”.
+3) Stop any route re-mounts
+Make sure you are not keying <Routes>:
+grep -R "<Routes" -n client | grep key || true
+If you see a key={location.key} or key={location.pathname+location.search}, remove it. Route remounts make the password popover flicker too.
+ 
+4) Lock the post-login redirect (no bounce to Home)
+You already confirmed via diagnostics that:
+•	sessions are persisted (SQLiteStore), and
+•	server returns { ok:true, redirectTo:"/admin/settings" }.
+So keep the redirect server-driven and hard-navigate:
+Server (after save):
+const redirectTo = req.session.returnTo || '/admin/settings';
+res.json({ ok: true, redirectTo });
+Client (AdminLogin on success):
+const { redirectTo } = await res.json();
+window.location.replace(redirectTo || '/admin/settings'); // hard nav
+Router (ensure /admin resolves inside admin, never to /):
+<Route path="/admin/login" element={<AdminLogin/>} />
+<Route path="/admin" element={<AdminGate><AdminLayout/></AdminGate>}>
+  <Route index element={<Navigate to="settings" replace />} />
+  <Route path="settings" element={<AdminSettings/>} />
+</Route>
+And re-run the “bad redirect” search — there must be zero of these left (except your Logout button, which should go to /admin/login):
+grep -R "navigate('/')" client/src
+grep -R "<Navigate to=\"/\"" client/src
+
