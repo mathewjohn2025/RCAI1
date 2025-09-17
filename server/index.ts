@@ -81,17 +81,22 @@ app.use(sessionMiddleware);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: false }));
 
-// LOGIN PAGE now handled by SPA - no server handler needed
+// Admin login page handler - sets returnTo in session
+app.get('/admin/login', (req, _res, next) => {
+  const rt = typeof req.query.returnTo === 'string' ? req.query.returnTo : undefined;
+  if (!req.session.returnTo) {
+    req.session.returnTo = sanitizeReturnTo(rt || req.get('referer') || '/admin/settings');
+  }
+  next();
+});
 
 // guard BEFORE static
-app.get('/admin/*', (req,res,next) => {
-  if (req.path === '/admin/login') return next(); // login is allowed through
+app.get('/admin/*', (req, res, next) => {
+  if (req.path === '/admin/login') return next();
   if (!req.session?.user) {
-    const rt = encodeURIComponent(req.originalUrl || '/admin');
-    nocache(res);
+    const rt = encodeURIComponent(req.originalUrl || '/admin/settings');
     return res.redirect(302, `/admin/login?returnTo=${rt}`);
   }
-  nocache(res);
   next();
 });
 
