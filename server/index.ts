@@ -130,6 +130,18 @@ function nocache(res: Response) {
   res.set('Vary', 'Cookie');
 }
 
+// Authentication helper function
+async function authenticate(email: string, password: string) {
+  // Simple authentication - replace with real authentication logic
+  if (!email || !password) {
+    throw new Error('Missing credentials');
+  }
+  
+  // For now, return a hardcoded admin user - replace with database lookup
+  const user = { id: "admin-id", email, role: "admin" };
+  return user;
+}
+
 // GET /api/admin/whoami - Admin whoami endpoint with strict nocache
 app.get('/api/admin/whoami', (req, res) => {
   nocache(res);
@@ -189,6 +201,30 @@ app.post('/api/auth/login', loginRateLimit, async (req, res, next) => {
   } catch (e) {
     res.status(401).json({ error: 'invalid_credentials' });
   }
+});
+
+// POST /api/auth/login-redirect - Server-driven login with 303 redirect
+const parseForm = express.urlencoded({ extended: false });
+
+app.post('/api/auth/login-redirect', parseForm, (req, res, next) => {
+  const { email, password } = req.body || {};
+  authenticate(email, password) // must throw on failure
+    .then(user => {
+      req.session.regenerate(err => {
+        if (err) return next(err);
+        req.session.user = { id: user.id, email: user.email, roles: [user.role] };
+
+        const redirectTo = req.session.returnTo || DEFAULT_ADMIN_RETURN_URL;
+        delete req.session.returnTo;
+
+        req.session.save(err2 => {
+          if (err2) return next(err2);
+          nocache(res);
+          return res.redirect(303, redirectTo);   // ← browser navigates; cookie travels
+        });
+      });
+    })
+    .catch(() => res.status(401).send('invalid_credentials'));
 });
 
 // POST /api/auth/logout - Destroy session
