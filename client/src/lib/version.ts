@@ -5,7 +5,7 @@ export async function ensureFreshBuild() {
 
   try {
     const res = await fetch('/version.json?ts=' + Date.now(), { cache: 'no-store' });
-    if (!res.ok) { console.warn('Version check HTTP', res.status); return; }
+    if (!res.ok) { return; }
 
     const remote = await res.json(); // { buildTag: "..." }
     const local = import.meta.env.VITE_BUILD_TAG;
@@ -15,11 +15,9 @@ export async function ensureFreshBuild() {
         await unregisterSWAndCaches();
         window.location.reload();
       } else {
-        console.warn('Reload already attempted; aborting loop.');
       }
     }
   } catch (e) {
-    console.warn('Version check failed:', e); // <-- NO reload on error
   }
 }
 

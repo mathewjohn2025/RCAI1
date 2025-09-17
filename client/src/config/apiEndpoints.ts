@@ -108,5 +108,5 @@ export const addQueryParams = (url: string, params: Record<string, string | numb
 
 // Environment validation
 if (typeof window !== 'undefined') {
-  console.log('🔧 API Configuration loaded - Zero hardcoding compliance active');
+  // Configuration loaded silently for production stability
 }

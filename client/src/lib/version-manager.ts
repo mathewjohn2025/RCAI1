@@ -24,7 +24,6 @@ export const killServiceWorkers = async () => {
       const keys = await caches.keys();
       await Promise.all(keys.map(key => caches.delete(key)));
     }
-    console.log('✅ Service Workers and caches cleared');
   }
 };
 
@@ -49,7 +48,6 @@ export const checkVersion = async (): Promise<boolean> => {
     
     return false; // No change
   } catch (error) {
-    console.error('Version check failed:', error);
     return false;
   }
 };
@@ -77,7 +75,7 @@ export const handleVersionChange = async () => {
 };
 
 // Start version monitoring
-export const startVersionMonitoring = (intervalMs = 30000) => {
+export const startVersionMonitoring = (intervalMs = 60000) => {
   if (versionCheckInterval) {
     clearInterval(versionCheckInterval);
   }

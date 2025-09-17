@@ -24,7 +24,7 @@ async function fetchVersion(): Promise<string | null> {
   }
 }
 
-export async function startVersionWatcher(config: VersionWatcherConfig, intervalMs = 30_000) {
+export async function startVersionWatcher(config: VersionWatcherConfig, intervalMs = 60_000) {
   const { getIsFormDirty, showToast, dismissToast } = config;
   
   // Initialize current version
