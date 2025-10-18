@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Fail the commit if any newly added/modified file >10MB
+max=$((10 * 1024 * 1024))
+files=$(git diff --cached --name-only --diff-filter=AM)
+for f in $files; do
+  [ -f "$f" ] || continue
+  size=$(wc -c <"$f")
+  if [ "$size" -gt "$max" ]; then
+    echo "❌ $f is ${size} bytes (>10MB). Move it to screenshots/ or use Git LFS."
+    exit 1
+  fi
+done
